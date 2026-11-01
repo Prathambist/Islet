@@ -60,7 +60,7 @@ You can also turn **Launch at login** on or off there. If something misbehaves, 
 
 ### Connecting Spotify (for the Like button)
 
-1. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and choose **Web API**.
+1. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and choose **Web API** (requires spotify premium).
 2. Add the Redirect URI `http://127.0.0.1:5543/callback`.
 3. Paste the app's **Client ID** in MusicIsland's Settings and press **Connect**.
 
