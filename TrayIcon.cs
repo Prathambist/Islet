@@ -1,6 +1,4 @@
 using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Runtime.InteropServices;
 using Forms = System.Windows.Forms;
 
 namespace MusicIsland
@@ -32,7 +30,7 @@ namespace MusicIsland
             this.update = update;
             this.installUpdate = installUpdate;
 
-            image = CreateIcon();
+            image = LoadIcon();
 
             icon = new Forms.NotifyIcon
             {
@@ -189,36 +187,12 @@ namespace MusicIsland
             return timer;
         }
 
-        // A tiny black pill, drawn at runtime so the repo needs no .ico asset
-        static Icon CreateIcon()
+        // The size Windows wants for the tray, from the same file as the exe's icon
+        static Icon LoadIcon()
         {
-            using var bitmap = new Bitmap(32, 32);
-
-            using (var g = Graphics.FromImage(bitmap))
-            {
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                g.Clear(Color.Transparent);
-
-                using var path = new GraphicsPath();
-                var rect = new RectangleF(2, 9, 28, 14);
-                float d = rect.Height;
-                path.AddArc(rect.X, rect.Y, d, d, 90, 180);
-                path.AddArc(rect.Right - d, rect.Y, d, d, 270, 180);
-                path.CloseFigure();
-
-                using var fill = new SolidBrush(Color.FromArgb(255, 8, 8, 10));
-                using var outline = new Pen(Color.FromArgb(200, 255, 255, 255), 1.5f);
-                g.FillPath(fill, path);
-                g.DrawPath(outline, path);
-
-                using var dot = new SolidBrush(Color.FromArgb(255, 190, 165, 255));
-                g.FillEllipse(dot, 21, 13, 6, 6);
-            }
-
-            var handle = bitmap.GetHicon();
-            var icon = (Icon)Icon.FromHandle(handle).Clone();
-            DestroyIcon(handle);
-            return icon;
+            var resource = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/MusicIsland.ico"));
+            using var stream = resource.Stream;
+            return new Icon(stream, Forms.SystemInformation.SmallIconSize);
         }
 
         public void Dispose()
@@ -227,8 +201,5 @@ namespace MusicIsland
             icon.Dispose();
             image.Dispose();
         }
-
-        [DllImport("user32.dll")]
-        static extern bool DestroyIcon(IntPtr handle);
     }
 }

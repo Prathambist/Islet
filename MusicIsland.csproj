@@ -9,6 +9,8 @@
     <Version>1.1.0</Version>
     <!-- WinForms is used only for the system tray icon -->
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- Shown on the exe and on every shortcut to it -->
+    <ApplicationIcon>Assets\MusicIsland.ico</ApplicationIcon>
     <!-- A background widget: favour a small footprint over peak throughput -->
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     <TieredPGO>false</TieredPGO>
@@ -25,6 +27,10 @@
     <Compile Remove="MusicIsland.Tests/**" />
     <None Remove="MusicIsland.Tests/**" />
     <Page Remove="MusicIsland.Tests/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\MusicIsland.ico" />
   </ItemGroup>
 
   <ItemGroup>
