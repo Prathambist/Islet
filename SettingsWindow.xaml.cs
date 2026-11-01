@@ -127,6 +127,12 @@ namespace MusicIsland
                 (int)Settings.Size,
                 i => { Settings.Size = (IslandSize)i; Settings.Save(); }));
 
+            appearance.Children.Add(Label("While music plays"));
+            appearance.Children.Add(Segmented(
+                new[] { "Pill with bars", "Spinning album art" },
+                (int)Settings.MusicLook,
+                i => { Settings.MusicLook = (MusicLook)i; Settings.Save(); }));
+
             appearance.Children.Add(Switch("Show synced lyrics", Settings.ShowLyrics,
                 v => { Settings.ShowLyrics = v; Settings.Save(); }));
             appearance.Children.Add(Note("The current line appears under the song when you open the island. Lyrics by LRCLIB."));
@@ -240,7 +246,7 @@ namespace MusicIsland
 
             idle.Children.Add(Label("Idle look"));
             idle.Children.Add(Segmented(
-                new[] { "Camera notch", "Hide", "Clock", "Clock + weather" },
+                new[] { "Camera notch", "Hide", "Clock", "Clock + weather", "Circle" },
                 (int)Settings.IdleMode,
                 i =>
                 {

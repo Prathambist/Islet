@@ -12,6 +12,8 @@ namespace MusicIsland
     {
         public sealed record Line(TimeSpan Time, string Text);
 
+        const double MaxLengthGapSeconds = 3;
+
         static readonly HttpClient http = CreateClient();
 
         static HttpClient CreateClient()
@@ -171,8 +173,9 @@ namespace MusicIsland
                 }
             }
 
-            // A very different length is probably another recording / a long video
-            return bestGap <= 6 ? best : null;
+            // A different length is probably another recording or a video with an
+            // intro, whose lines would run early or late for the whole song
+            return bestGap <= MaxLengthGapSeconds ? best : null;
         }
 
         internal static IReadOnlyList<Line>? Parse(JsonElement item)

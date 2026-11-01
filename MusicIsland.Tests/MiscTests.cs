@@ -141,3 +141,53 @@ public class SpringTests
         Assert.InRange(spring.Value, 399, 401);
     }
 }
+
+public class NotificationClassifyTests
+{
+    [Theory]
+    [InlineData("Discord", ChatApp.Discord, false)]
+    [InlineData("WhatsApp", ChatApp.WhatsApp, false)]
+    [InlineData("WhatsApp Web - Brave", ChatApp.WhatsApp, true)]
+    public void Recognises_apps_by_name(string appName, ChatApp expected, bool fromBrowser)
+    {
+        var (app, browser) = NotificationWatcher.Classify(appName, new List<string> { "Sam", "hi" });
+
+        Assert.Equal(expected, app);
+        Assert.Equal(fromBrowser, browser);
+    }
+
+    [Theory]
+    [InlineData("web.whatsapp.com", ChatApp.WhatsApp)]
+    [InlineData("https://discord.com/channels/1", ChatApp.Discord)]
+    [InlineData("www.messenger.com", ChatApp.Messenger)]
+    public void Recognises_browser_tabs_by_site_and_removes_the_address(string site, ChatApp expected)
+    {
+        var texts = new List<string> { "Sam", "hi", site };
+
+        var (app, browser) = NotificationWatcher.Classify("Google Chrome", texts);
+
+        Assert.Equal(expected, app);
+        Assert.True(browser);
+        Assert.Equal(new[] { "Sam", "hi" }, texts);
+    }
+
+    [Theory]
+    [InlineData("mail.example.com")]
+    [InlineData("check out discord.com")]
+    [InlineData("notdiscord.com")]
+    public void Other_browser_notifications_stay_generic(string lastLine)
+    {
+        var texts = new List<string> { "Sam", lastLine };
+
+        var (app, _) = NotificationWatcher.Classify("Microsoft Edge", texts);
+
+        Assert.Equal(ChatApp.Browser, app);
+        Assert.Equal(2, texts.Count);
+    }
+
+    [Fact]
+    public void Other_apps_are_ignored_even_with_a_chat_address()
+    {
+        Assert.Null(NotificationWatcher.Classify("Outlook", new List<string> { "Sam", "discord.com" }).App);
+    }
+}

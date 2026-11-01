@@ -123,6 +123,15 @@ not a lyric line
     }
 
     [Fact]
+    public void PickSearchResult_rejects_a_version_a_few_seconds_longer()
+    {
+        // Same song, but lines would be about 5 seconds off throughout
+        var best = LyricsService.PickSearchResult(Results(SearchResults), "The Strokes", "Selfless", TimeSpan.FromSeconds(227));
+
+        Assert.Null(best);
+    }
+
+    [Fact]
     public void PickSearchResult_never_returns_a_different_song()
     {
         var best = LyricsService.PickSearchResult(Results(SearchResults), "The Strokes", "Bad Decisions", TimeSpan.FromSeconds(222));

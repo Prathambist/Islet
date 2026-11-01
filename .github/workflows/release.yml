@@ -26,11 +26,12 @@ jobs:
         run: dotnet test MusicIsland.Tests/MusicIsland.Tests.csproj -c Release
 
       - name: Build & Publish Self-Contained App
-        # Stamp the tag (v1.2.0 -> 1.2.0) into the exe so the in-app updater can compare versions
+        # Stamp the tag (v1.2.0 -> 1.2.0) into the exe so the in-app updater can compare versions.
+        # ReadyToRun precompiles the app, so the first hover or notification doesn't stall on the JIT.
         run: |
           $version = "${{ github.ref_name }}".TrimStart('v')
           if ($version -notmatch '^\d+(\.\d+){1,3}$') { $version = "0.0.0" }
-          dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:Version=$version -o ./publish
+          dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:Version=$version -o ./publish
 
       - name: Create Release Zip
         run: |

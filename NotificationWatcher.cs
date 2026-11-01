@@ -1,4 +1,5 @@
-﻿using System.Windows.Media.Imaging;
+﻿using System.Text.RegularExpressions;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Windows.UI.Notifications;
 using Windows.UI.Notifications.Management;
@@ -25,9 +26,9 @@ namespace MusicIsland
     /// Reads Windows toast notifications (with the user's permission) and picks
     /// out Discord, WhatsApp and Messenger messages. Those apps are recognised
     /// by name, which includes web apps installed from the browser ("Install
-    /// app"). Windows doesn't say which website a plain browser tab's
-    /// notification came from, so those are optional and labelled with the
-    /// browser's name.
+    /// app"). A plain browser tab's notification is recognised by the site
+    /// address the browser adds as its last line; other sites are optional and
+    /// labelled with the browser's name.
     /// </summary>
     public sealed class NotificationWatcher
     {
@@ -44,6 +45,10 @@ namespace MusicIsland
 
         static readonly string[] Browsers =
             { "chrome", "edge", "brave", "firefox", "opera", "vivaldi" };
+
+        static readonly Regex ChatSite = new(
+            @"^(https?://)?([\w-]+\.)*(?<site>discord|whatsapp|messenger)\.com(/\S*)?$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         public NotificationWatcher()
         {
@@ -131,15 +136,7 @@ namespace MusicIsland
             var texts = binding.GetTextElements().Select(t => t.Text?.Trim() ?? "")
                 .Where(t => t.Length > 0).ToList();
 
-            string name = appName.ToLowerInvariant();
-            bool fromBrowser = Browsers.Any(name.Contains);
-
-            ChatApp? app =
-                name.Contains("discord") ? ChatApp.Discord :
-                name.Contains("whatsapp") ? ChatApp.WhatsApp :
-                name.Contains("messenger") ? ChatApp.Messenger :
-                fromBrowser ? ChatApp.Browser :
-                null;
+            var (app, fromBrowser) = Classify(appName, texts);
 
             if (app == null || !IsEnabled(app.Value) || texts.Count == 0)
                 return null;
@@ -168,6 +165,37 @@ namespace MusicIsland
                 string.Join(" ", texts.Skip(1)),
                 icon,
                 fromBrowser);
+        }
+
+        /// <summary>
+        /// Which chat app a toast belongs to. A browser tab's site address is
+        /// removed from <paramref name="texts"/>, as it isn't part of the message.
+        /// </summary>
+        internal static (ChatApp? App, bool FromBrowser) Classify(string appName, List<string> texts)
+        {
+            string name = appName.ToLowerInvariant();
+            bool fromBrowser = Browsers.Any(name.Contains);
+
+            if (name.Contains("discord")) return (ChatApp.Discord, fromBrowser);
+            if (name.Contains("whatsapp")) return (ChatApp.WhatsApp, fromBrowser);
+            if (name.Contains("messenger")) return (ChatApp.Messenger, fromBrowser);
+
+            if (!fromBrowser)
+                return (null, false);
+
+            var site = texts.Count > 1 ? ChatSite.Match(texts[^1]) : Match.Empty;
+
+            if (!site.Success)
+                return (ChatApp.Browser, true);
+
+            texts.RemoveAt(texts.Count - 1);
+
+            return (site.Groups["site"].Value.ToLowerInvariant() switch
+            {
+                "discord" => ChatApp.Discord,
+                "whatsapp" => ChatApp.WhatsApp,
+                _ => ChatApp.Messenger
+            }, true);
         }
 
         static bool IsEnabled(ChatApp app)

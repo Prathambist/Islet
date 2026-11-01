@@ -74,3 +74,27 @@ public class MediaControllerTests
         Assert.Null(Pick(Array.Empty<Player>(), shown: spotify, current: null));
     }
 }
+
+public class TrackPositionTests
+{
+    static readonly DateTimeOffset Reported = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    static TrackInfo Track(bool playing, double rate = 1) => new(
+        "Song", "Artist", "", playing, null, TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(3),
+        Reported, MediaSource.Browser, "Chrome", "chrome", rate);
+
+    [Theory]
+    [InlineData(1, 14)]
+    [InlineData(1.5, 16)]
+    [InlineData(0.5, 12)]
+    public void Playing_track_advances_at_its_speed(double rate, double expected)
+    {
+        Assert.Equal(TimeSpan.FromSeconds(expected), Track(true, rate).PositionAt(Reported.AddSeconds(4)));
+    }
+
+    [Fact]
+    public void Paused_track_stays_put()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(10), Track(false).PositionAt(Reported.AddSeconds(4)));
+    }
+}

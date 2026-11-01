@@ -28,7 +28,15 @@ namespace MusicIsland
         DateTimeOffset PositionUpdated,
         MediaSource Source,
         string SourceName,
-        string ProcessName);
+        string ProcessName,
+        double Rate = 1)
+    {
+        /// <summary>Where playback is now; players only report it now and then.</summary>
+        public TimeSpan PositionAt(DateTimeOffset now) =>
+            Playing && PositionUpdated > DateTimeOffset.MinValue
+                ? Position + (now - PositionUpdated) * Rate
+                : Position;
+    }
 
     /// <summary>
     /// Follows Windows' media sessions (the same ones the volume flyout shows):
@@ -37,6 +45,9 @@ namespace MusicIsland
     /// </summary>
     public sealed class MediaController
     {
+        // Shown until a player reports a title; browsers do that for a moment while a page loads
+        public const string UnknownTitle = "Unknown track";
+
         GlobalSystemMediaTransportControlsSessionManager? manager;
         GlobalSystemMediaTransportControlsSession? wiredSession;
 
@@ -50,6 +61,7 @@ namespace MusicIsland
         // browsers often send the real thumbnail a moment after the title
         string artworkKey = "";
         BitmapSource? artwork;
+        byte[]? artworkBytes;
         volatile bool artworkDirty = true;
 
         public GlobalSystemMediaTransportControlsSession? Session
@@ -254,19 +266,28 @@ namespace MusicIsland
             {
                 artworkDirty = false;
                 artworkKey = key;
-                artwork = await LoadImageAsync(media.Thumbnail);
 
-                // With no artwork from the site, Windows hands over the browser's logo
-                if (artwork != null && ArtworkService.LooksLikeIcon(artwork))
+                var bytes = await ReadImageAsync(media.Thumbnail);
+
+                // Browsers report changes repeatedly with the same picture; keeping the
+                // same image avoids decoding it and recolouring the island each time
+                if (bytes == null || artworkBytes == null || !bytes.AsSpan().SequenceEqual(artworkBytes))
                 {
-                    Log.Info($"Ignoring app icon used as artwork by {sourceName}");
-                    artwork = null;
+                    artworkBytes = bytes;
+                    artwork = bytes == null ? null : await Task.Run(() => DecodeImage(bytes));
+
+                    // With no artwork from the site, Windows hands over the browser's logo
+                    if (artwork != null && ArtworkService.LooksLikeIcon(artwork))
+                    {
+                        Log.Info($"Ignoring app icon used as artwork by {sourceName}");
+                        artwork = null;
+                    }
                 }
             }
 
             return new TrackInfo(
                 string.IsNullOrWhiteSpace(media.Title)
-                    ? "Unknown track"
+                    ? UnknownTitle
                     : media.Title,
 
                 // Browsers often leave artist empty (e.g. plain YouTube videos)
@@ -290,11 +311,20 @@ namespace MusicIsland
 
                 source,
                 sourceName,
-                process
+                process,
+
+                // Web players can run at other speeds (YouTube's 1.5x, for example)
+                playback.PlaybackRate is > 0 and double rate ? rate : 1
             );
         }
 
         public static async Task<BitmapSource?> LoadImageAsync(IRandomAccessStreamReference? thumbnail)
+        {
+            var bytes = await ReadImageAsync(thumbnail);
+            return bytes == null ? null : await Task.Run(() => DecodeImage(bytes));
+        }
+
+        static async Task<byte[]?> ReadImageAsync(IRandomAccessStreamReference? thumbnail)
         {
             if (thumbnail == null)
                 return null;
@@ -312,12 +342,37 @@ namespace MusicIsland
                 byte[] bytes = new byte[(int)stream.Size];
                 reader.ReadBytes(bytes);
 
+                return bytes;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // The island never draws art larger than this, even on high-DPI screens
+        const int MaxArtSize = 192;
+
+        /// <summary>Decodes on any thread; large art is shrunk so drawing it stays cheap.</summary>
+        internal static BitmapSource? DecodeImage(byte[] bytes)
+        {
+            try
+            {
                 using var memory = new MemoryStream(bytes);
+
+                int sourceWidth = BitmapDecoder.Create(memory, BitmapCreateOptions.DelayCreation,
+                    BitmapCacheOption.None).Frames[0].PixelWidth;
+
+                memory.Position = 0;
 
                 var bitmap = new BitmapImage();
                 bitmap.BeginInit();
                 bitmap.CacheOption = BitmapCacheOption.OnLoad;
                 bitmap.StreamSource = memory;
+
+                if (sourceWidth > MaxArtSize)
+                    bitmap.DecodePixelWidth = MaxArtSize;
+
                 bitmap.EndInit();
                 bitmap.Freeze();
 

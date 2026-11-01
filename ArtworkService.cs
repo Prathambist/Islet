@@ -1,4 +1,3 @@
-using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -102,15 +101,7 @@ namespace MusicIsland
         static async Task<BitmapSource?> DownloadAsync(string url)
         {
             byte[] bytes = await http.GetByteArrayAsync(url);
-
-            using var memory = new MemoryStream(bytes);
-            var bitmap = new BitmapImage();
-            bitmap.BeginInit();
-            bitmap.CacheOption = BitmapCacheOption.OnLoad;
-            bitmap.StreamSource = memory;
-            bitmap.EndInit();
-            bitmap.Freeze();
-            return bitmap;
+            return await Task.Run(() => MediaController.DecodeImage(bytes));
         }
 
         // "Selfless (feat. X)" and "selfless" compare equal

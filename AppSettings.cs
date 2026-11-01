@@ -17,7 +17,14 @@ namespace MusicIsland
         Notch,
         Hide,
         Clock,
-        ClockWeather
+        ClockWeather,
+        Circle
+    }
+
+    public enum MusicLook
+    {
+        Pill,
+        Disc
     }
 
     public enum IslandTheme
@@ -61,6 +68,7 @@ namespace MusicIsland
         // Appearance
         public IslandTheme Theme { get; set; } = IslandTheme.Midnight;
         public IslandSize Size { get; set; } = IslandSize.Default;
+        public MusicLook MusicLook { get; set; } = MusicLook.Pill;
         public bool ShowLyrics { get; set; } = true;
         public bool FindVideoArt { get; set; } = true;
 

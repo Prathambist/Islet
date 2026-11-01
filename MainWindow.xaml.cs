@@ -21,6 +21,8 @@ namespace MusicIsland
             Hidden,
             Notch,
             CompactMusic,
+            MiniMusic,
+            MiniIdle,
             CompactAmbient,
             Volume,
             Peek,
@@ -37,7 +39,8 @@ namespace MusicIsland
             BitmapSource? Icon,
             Color Badge,
             int Glyph,
-            Action OnClick);
+            Action OnClick,
+            Geometry? Logo = null);
 
         sealed class Panel
         {
@@ -75,9 +78,12 @@ namespace MusicIsland
         readonly Spring heartScale = new(1, 0.35, 0.42);
         readonly Spring seekGrow = new(0, 0.2, 1);
 
+        // Degrees per second, so the disc winds down and back up like a record
+        readonly Spring discSpeed = new(0, 0.9, 1);
+
         readonly Spring[] springs;
         readonly List<Panel> panels = new();
-        readonly Panel compactMusicPanel, compactAmbientPanel, volumePanel, notchPanel,
+        readonly Panel compactMusicPanel, miniMusicPanel, miniIdlePanel, compactAmbientPanel, volumePanel, notchPanel,
             peekMusicPanel, peekNotifyPanel, expandedMusicPanel, expandedAmbientPanel;
 
         readonly Rectangle[] compactBars;
@@ -90,6 +96,7 @@ namespace MusicIsland
         Surface surface = (Surface)(-1);
         bool rendering;
         TimeSpan lastFrame;
+        double discAngle, orbAngle;
 
         TrackInfo? track;
         bool playing;
@@ -139,9 +146,11 @@ namespace MusicIsland
         {
             InitializeComponent();
 
-            springs = new[] { width, height, islandOpacity, islandScale, volumeLevel, volumeRow, glow, heartScale, seekGrow };
+            springs = new[] { width, height, islandOpacity, islandScale, volumeLevel, volumeRow, glow, heartScale, seekGrow, discSpeed };
 
             compactMusicPanel = AddPanel(CompactMusic, 0.88);
+            miniMusicPanel = AddPanel(MiniMusic, 0.7);
+            miniIdlePanel = AddPanel(MiniIdle, 0.7);
             compactAmbientPanel = AddPanel(CompactAmbient, 0.88);
             volumePanel = AddPanel(CompactVolume, 0.88);
             notchPanel = AddPanel(NotchPanel, 0.9);
@@ -153,6 +162,7 @@ namespace MusicIsland
             compactBars = CreateBars(CompactBars, 3, 1.5);
             expandedBars = CreateBars(ExpandedBars, 3.5, 1.75);
             peekBars = CreateBars(PeekBars, 3, 1.5);
+            ApplyOrbColor(accentColor);
 
             fullscreen = new FullscreenWatcher(() => new WindowInteropHelper(this).Handle);
             fullscreen.Changed += OnFullscreenChanged;
@@ -441,9 +451,16 @@ namespace MusicIsland
                 return Surface.Hidden;
 
             if (!idle)
-                return peekVisible ? Surface.Peek : Surface.CompactMusic;
+                return peekVisible ? Surface.Peek
+                    : Settings.MusicLook == MusicLook.Disc ? Surface.MiniMusic
+                    : Surface.CompactMusic;
 
-            return Settings.IdleMode == IdleMode.Notch ? Surface.Notch : Surface.CompactAmbient;
+            return Settings.IdleMode switch
+            {
+                IdleMode.Notch => Surface.Notch,
+                IdleMode.Circle => Surface.MiniIdle,
+                _ => Surface.CompactAmbient
+            };
         }
 
         void UpdateSurface()
@@ -460,6 +477,8 @@ namespace MusicIsland
             {
                 Surface.Hidden => (100.0, 28.0, null),
                 Surface.Notch => (112.0, 30.0, notchPanel),
+                Surface.MiniMusic => (38.0, 38.0, miniMusicPanel),
+                Surface.MiniIdle => (30.0, 30.0, miniIdlePanel),
                 Surface.CompactAmbient => (210.0, 38.0, compactAmbientPanel),
                 Surface.Volume => (264.0, 38.0, volumePanel),
                 Surface.Peek => (340.0, 64.0, peekMusicPanel),
@@ -557,6 +576,7 @@ namespace MusicIsland
 
             busy |= UpdateBars(dt);
             busy |= UpdateProgress();
+            busy |= UpdateMini(dt);
 
             double trackWidth = Math.Max(0, CompactVolumeFill.Parent is FrameworkElement f ? f.ActualWidth : 0);
             CompactVolumeFill.Width = trackWidth * Math.Clamp(volumeLevel.Value, 0, 1);
@@ -653,6 +673,44 @@ namespace MusicIsland
             return moving;
         }
 
+        // Spins the mini views; time-based, so a slow frame never makes them stutter
+        bool UpdateMini(double dt)
+        {
+            discSpeed.Target = playing ? 42 : 0;
+
+            bool disc = miniMusicPanel.Element.Visibility == Visibility.Visible;
+            bool orb = miniIdlePanel.Element.Visibility == Visibility.Visible;
+
+            if (disc)
+            {
+                discAngle = (discAngle + discSpeed.Value * dt) % 360;
+                DiscRotate.Angle = discAngle;
+            }
+
+            if (orb)
+            {
+                orbAngle = (orbAngle + 75 * dt) % 360;
+                OrbRotate.Angle = orbAngle;
+
+                double breath = 1 + 0.22 * Math.Sin(lastFrame.TotalSeconds * 1.8);
+                OrbDotScale.ScaleX = OrbDotScale.ScaleY = breath;
+            }
+
+            return orb || (disc && discSpeed.Value > 0.05);
+        }
+
+        void ApplyOrbColor(Color color)
+        {
+            var dot = new SolidColorBrush(color);
+            dot.Freeze();
+            OrbDot.Fill = dot;
+
+            // Fades around the ring, so turning it reads as a soft comet
+            var ring = new LinearGradientBrush(color, Color.FromArgb(0, color.R, color.G, color.B), 90);
+            ring.Freeze();
+            OrbRing.Stroke = ring;
+        }
+
         // Used when loopback capture is off or unavailable
         void SyntheticLevels(double t)
         {
@@ -680,10 +738,7 @@ namespace MusicIsland
                 return false;
             }
 
-            var position = track.Position;
-
-            if (playing && track.PositionUpdated > DateTimeOffset.MinValue)
-                position += DateTimeOffset.Now - track.PositionUpdated;
+            var position = track.PositionAt(DateTimeOffset.Now);
 
             if (seeking)
                 position = duration * seekFraction;
@@ -830,6 +885,7 @@ namespace MusicIsland
             var vivid = Brighten(accent, 0.35);
 
             accentColor = accent;
+            ApplyOrbColor(vivid);
 
             if (Settings.Theme == IslandTheme.AlbumTint)
                 ApplyTheme();
@@ -916,6 +972,7 @@ namespace MusicIsland
             {
                 var next = await media.GetTrackAsync();
                 bool hadTrack = track != null;
+                bool hadTitle = hadTrack && track!.Title != MediaController.UnknownTitle;
                 track = next;
 
                 if (next == null)
@@ -924,6 +981,7 @@ namespace MusicIsland
                     TrackArtist.Text = "Play something to get started";
                     CompactAlbumArt.Source = null;
                     AlbumArt.Source = null;
+                    DiscArt.Fill = null;
                     playing = false;
                     pausedSince = null;
                     trackKey = "";
@@ -963,11 +1021,11 @@ namespace MusicIsland
 
                 if (trackChanged)
                 {
-                    bool firstTrack = trackKey.Length == 0;
+                    bool hasTitle = next.Title != MediaController.UnknownTitle;
                     trackKey = key;
 
                     // iOS-style "now playing" peek when the song changes by itself
-                    if (!firstTrack && next.Playing && !hovering)
+                    if (hadTitle && hasTitle && next.Playing && !hovering)
                     {
                         PeekArt.Source = art;
                         PeekTitle.Text = next.Title;
@@ -978,10 +1036,15 @@ namespace MusicIsland
                     }
 
                     lyrics = null;
-                    currentLyric = null;
+                    ResetLyric();
                     ApplyLyricsLayout();
-                    _ = LoadLyricsAsync(key, next);
-                    _ = LoadCoverAsync(key, next);
+
+                    // Nothing to look up yet; the real title arrives as its own change
+                    if (hasTitle)
+                    {
+                        _ = LoadLyricsAsync(key, next);
+                        _ = LoadCoverAsync(key, next);
+                    }
 
                     likeUri = null;
                     SetLiked(false, animate: false);
@@ -1159,7 +1222,7 @@ namespace MusicIsland
             if (lyricsCache.TryGetValue(key, out var cached))
             {
                 lyrics = cached;
-                currentLyric = null;
+                ResetLyric();
                 ApplyLyricsLayout();
                 return;
             }
@@ -1201,7 +1264,7 @@ namespace MusicIsland
                 return;
 
             lyrics = result;
-            currentLyric = null;
+            ResetLyric();
             ApplyLyricsLayout();
         }
 
@@ -1257,6 +1320,7 @@ namespace MusicIsland
             CompactAlbumArt.Source = art;
             AlbumArt.Source = art;
             PeekArt.Source = art;
+            DiscArt.Fill = art == null ? null : new ImageBrush(art) { Stretch = Stretch.UniformToFill };
             ApplyAlbumTheme(art);
 
             if (surface == Surface.ExpandedMusic)
@@ -1278,6 +1342,13 @@ namespace MusicIsland
                 height.Target = ExpandedMusic.Height;
                 EnsureRendering();
             }
+        }
+
+        // Before a song's first line there is no line to replace the old text with
+        void ResetLyric()
+        {
+            currentLyric = null;
+            LyricText.Text = ((char)0x266A).ToString();
         }
 
         void UpdateLyric(TimeSpan position)
@@ -1344,7 +1415,7 @@ namespace MusicIsland
 
             // Move the bar right away; the player confirms a moment later
             track = track with { Position = target, PositionUpdated = DateTimeOffset.Now };
-            currentLyric = null;
+            ResetLyric();
             EnsureRendering();
 
             try
@@ -1372,12 +1443,14 @@ namespace MusicIsland
 
         void EnqueueChat(ChatNotification n)
         {
-            var (badge, url) = n.App switch
+            var (badge, url, logo) = n.App switch
             {
-                ChatApp.Discord => (Color.FromRgb(88, 101, 242), "discord://"),
-                ChatApp.WhatsApp => (Color.FromRgb(37, 211, 102), "whatsapp://"),
-                ChatApp.Messenger => (Color.FromRgb(0, 132, 255), "https://www.messenger.com"),
-                _ => (Color.FromRgb(72, 72, 74), (string?)null)
+                ChatApp.Discord => (Color.FromRgb(88, 101, 242),
+                    n.FromBrowser ? "https://discord.com/app" : "discord://", "DiscordLogo"),
+                ChatApp.WhatsApp => (Color.FromRgb(37, 211, 102),
+                    n.FromBrowser ? "https://web.whatsapp.com" : "whatsapp://", "WhatsAppLogo"),
+                ChatApp.Messenger => (Color.FromRgb(0, 132, 255), "https://www.messenger.com", "MessengerLogo"),
+                _ => (Color.FromRgb(72, 72, 74), (string?)null, (string?)null)
             };
 
             Enqueue(new NotifyItem(
@@ -1391,7 +1464,8 @@ namespace MusicIsland
                 {
                     if (url != null)
                         OpenUrl(url);
-                }));
+                },
+                logo == null ? null : (Geometry)FindResource(logo)));
         }
 
         void Enqueue(NotifyItem item)
@@ -1422,7 +1496,12 @@ namespace MusicIsland
             NotifyApp.Text = item.App;
             NotifySender.Text = item.Sender;
             NotifyMessage.Text = item.Message;
-            NotifyIcon.Source = item.Icon;
+
+            // The known apps always get their own logo; Windows often has none for them
+            NotifyIcon.Source = item.Logo == null ? item.Icon : null;
+            NotifyLogo.Data = item.Logo;
+            NotifyLogo.Visibility = item.Logo == null ? Visibility.Collapsed : Visibility.Visible;
+            NotifyBadgeGlyph.Visibility = item.Logo == null ? Visibility.Visible : Visibility.Collapsed;
             NotifyBadge.Background = new SolidColorBrush(item.Badge);
             NotifyBadgeGlyph.Text = ((char)item.Glyph).ToString();
 
