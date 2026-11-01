@@ -1627,6 +1627,12 @@ namespace MusicIsland
 
             AmbientWeather.Visibility = weather != null ? Visibility.Visible : Visibility.Collapsed;
 
+            // The idle circle swaps its dot for the temperature and widens its ring to fit
+            OrbTemp.Text = weather != null ? Math.Round(weather.Temperature) + "°" : "";
+            OrbTemp.Visibility = weather != null ? Visibility.Visible : Visibility.Collapsed;
+            OrbDot.Visibility = weather != null ? Visibility.Collapsed : Visibility.Visible;
+            OrbRingHolder.Width = OrbRingHolder.Height = weather != null ? 27 : 20;
+
             if (weather != null)
             {
                 AmbientWeatherGlyph.Text = weather.Glyph;

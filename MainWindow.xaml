@@ -238,7 +238,8 @@
                         <ScaleTransform/>
                     </Grid.RenderTransform>
 
-                    <Grid Width="20"
+                    <Grid x:Name="OrbRingHolder"
+                          Width="20"
                           Height="20"
                           RenderTransformOrigin="0.5,0.5">
                         <Grid.CacheMode>
@@ -260,6 +261,17 @@
                             <ScaleTransform x:Name="OrbDotScale"/>
                         </Ellipse.RenderTransform>
                     </Ellipse>
+
+                    <!-- Shrinks to fit inside the ring when the reading is long, like -12° -->
+                    <Viewbox Width="20"
+                             Height="12"
+                             StretchDirection="DownOnly">
+                        <TextBlock x:Name="OrbTemp"
+                                   Foreground="White"
+                                   FontSize="10.5"
+                                   FontWeight="SemiBold"
+                                   Visibility="Collapsed"/>
+                    </Viewbox>
                 </Grid>
 
                 <!-- ===== Compact: clock / weather ===== -->
