@@ -25,6 +25,8 @@ namespace MusicIsland
         double SpringResponse,
         bool TrimMemory,
         bool GraphicsCard,
+        bool TimerMotion,
+        GlyphAlertStyle TimerAlert,
         string Summary)
     {
         static readonly PerformanceProfile LowProfile = new(
@@ -32,6 +34,7 @@ namespace MusicIsland
             SongPeek: false, SongFlair: false, SpinViews: false, Marquee: false, Glow: false, OpenStagger: false,
             ContinuousFps: 30, AudioIntervalMs: 0, HoverDelayMs: 170, CollapseDelayMs: 220,
             SpringResponse: 0.85, TrimMemory: true, GraphicsCard: false,
+            TimerMotion: false, TimerAlert: GlyphAlertStyle.Flash,
             Summary: "Lightest. Just the island and its controls, with no lyrics, moving bars, spinning views, scrolling titles, glow or song-change preview.");
 
         static readonly PerformanceProfile MediumProfile = new(
@@ -39,6 +42,7 @@ namespace MusicIsland
             SongPeek: true, SongFlair: false, SpinViews: true, Marquee: true, Glow: true, OpenStagger: false,
             ContinuousFps: 30, AudioIntervalMs: 33, HoverDelayMs: 170, CollapseDelayMs: 220,
             SpringResponse: 1, TrimMemory: true, GraphicsCard: false,
+            TimerMotion: true, TimerAlert: GlyphAlertStyle.Fade,
             Summary: "Balanced. Live bars, spinning views, one lyric line and the song-change preview, at 30 frames per second.");
 
         static readonly PerformanceProfile HighProfile = new(
@@ -46,6 +50,7 @@ namespace MusicIsland
             SongPeek: true, SongFlair: true, SpinViews: true, Marquee: true, Glow: true, OpenStagger: true,
             ContinuousFps: 0, AudioIntervalMs: 0, HoverDelayMs: 110, CollapseDelayMs: 160,
             SpringResponse: 0.85, TrimMemory: false, GraphicsCard: true,
+            TimerMotion: true, TimerAlert: GlyphAlertStyle.Bloom,
             Summary: "Smoothest. Adds the full lyric view, song-change animation and quicker hover at full frame rate, drawn on the graphics card.");
 
         public static PerformanceProfile For(PerformanceMode mode) => mode switch

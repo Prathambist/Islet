@@ -109,6 +109,7 @@ namespace MusicIsland
         public bool ReplaceVolumePopup { get; set; } = true;
         public ScrollTarget ScrollTarget { get; set; } = ScrollTarget.Spotify;
         public bool RealAudioVisualizer { get; set; } = true;
+        public bool TimerSound { get; set; } = true;
 
         // Spotify Web API
         public string SpotifyClientId { get; set; } = "";

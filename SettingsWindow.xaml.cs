@@ -347,6 +347,10 @@ namespace MusicIsland
                 Settings.ReplaceVolumePopup,
                 v => { Settings.ReplaceVolumePopup = v; Settings.Save(); }));
 
+            controls.Children.Add(Switch("Play a sound when the timer ends",
+                Settings.TimerSound,
+                v => { Settings.TimerSound = v; Settings.Save(); }));
+
             controls.Children.Add(Switch("Scroll over the island to change volume",
                 Settings.ScrollVolumeEnabled,
                 v => { Settings.ScrollVolumeEnabled = v; Settings.Save(); }));

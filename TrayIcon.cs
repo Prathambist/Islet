@@ -13,6 +13,7 @@ namespace MusicIsland
     {
         readonly Forms.NotifyIcon icon;
         readonly FullscreenWatcher fullscreen;
+        readonly CountdownTimer countdown;
         readonly Action openSettings;
         readonly Action quit;
         readonly Func<UpdateService.Release?> update;
@@ -21,10 +22,11 @@ namespace MusicIsland
 
         static AppSettings Settings => AppSettings.Current;
 
-        public TrayIcon(FullscreenWatcher fullscreen, Action openSettings, Action quit,
+        public TrayIcon(FullscreenWatcher fullscreen, CountdownTimer countdown, Action openSettings, Action quit,
             Func<UpdateService.Release?> update, Action installUpdate)
         {
             this.fullscreen = fullscreen;
+            this.countdown = countdown;
             this.openSettings = openSettings;
             this.quit = quit;
             this.update = update;
@@ -66,6 +68,7 @@ namespace MusicIsland
                 menu.Items.Add(new Forms.ToolStripSeparator());
             }
 
+            menu.Items.Add(BuildTimerMenu(menu));
             menu.Items.Add("Settings…", null, (s, e) => openSettings());
             menu.Items.Add(new Forms.ToolStripSeparator());
 
@@ -107,6 +110,83 @@ namespace MusicIsland
 
             menu.Items.Add(new Forms.ToolStripSeparator());
             menu.Items.Add("Quit MusicIsland", null, (s, e) => quit());
+        }
+
+        Forms.ToolStripMenuItem BuildTimerMenu(Forms.ContextMenuStrip menu)
+        {
+            string title = countdown.State switch
+            {
+                CountdownState.Running => $"Timer ({TimerText.Clock(countdown.Remaining)})",
+                CountdownState.Paused => $"Timer (paused, {TimerText.Clock(countdown.Remaining)})",
+                CountdownState.Ringing => "Timer (finished)",
+                _ => "Timer"
+            };
+
+            var timer = new Forms.ToolStripMenuItem(title);
+
+            void Add(string label, Action action) =>
+                timer.DropDownItems.Add(label, null, (s, e) => action());
+
+            switch (countdown.State)
+            {
+                case CountdownState.Idle:
+                    foreach (int minutes in new[] { 1, 3, 5, 10, 15, 25, 30, 45, 60 })
+                        Add($"{minutes} min", () => countdown.Start(TimeSpan.FromMinutes(minutes)));
+
+                    timer.DropDownItems.Add(new Forms.ToolStripSeparator());
+                    timer.DropDownItems.Add(new Forms.ToolStripLabel("Custom, like 12, 1:30 or 1h30, then Enter:"));
+
+                    var custom = new Forms.ToolStripTextBox();
+                    custom.KeyDown += (s, e) =>
+                    {
+                        if (e.KeyCode != Forms.Keys.Enter)
+                            return;
+
+                        e.SuppressKeyPress = true;
+
+                        if (TimerText.TryParse(custom.Text, out var duration))
+                        {
+                            countdown.Start(duration);
+                            menu.Close();
+                        }
+                        else
+                        {
+                            custom.SelectAll();
+                        }
+                    };
+
+                    timer.DropDownItems.Add(custom);
+                    break;
+
+                case CountdownState.Ringing:
+                    Add("Dismiss", countdown.Stop);
+                    Add("Add 1 min", () => countdown.AddTime(TimeSpan.FromMinutes(1)));
+                    Add("Add 5 min", () => countdown.AddTime(TimeSpan.FromMinutes(5)));
+                    break;
+
+                default:
+                    if (countdown.State == CountdownState.Paused)
+                        Add("Resume", countdown.Resume);
+                    else
+                        Add("Pause", countdown.Pause);
+
+                    Add("Add 1 min", () => countdown.AddTime(TimeSpan.FromMinutes(1)));
+                    Add("Add 5 min", () => countdown.AddTime(TimeSpan.FromMinutes(5)));
+                    Add("Cancel", countdown.Stop);
+                    break;
+            }
+
+            timer.DropDownItems.Add(new Forms.ToolStripSeparator());
+
+            var sound = new Forms.ToolStripMenuItem("Play sound") { Checked = Settings.TimerSound };
+            sound.Click += (s, e) =>
+            {
+                Settings.TimerSound = !Settings.TimerSound;
+                Settings.Save();
+            };
+            timer.DropDownItems.Add(sound);
+
+            return timer;
         }
 
         // A tiny black pill, drawn at runtime so the repo needs no .ico asset

@@ -55,6 +55,21 @@ public class PerformanceTests
     }
 
     [Fact]
+    public void Timer_only_moves_continuously_above_low_but_every_mode_has_an_alert()
+    {
+        var low = PerformanceProfile.For(PerformanceMode.Low);
+        var medium = PerformanceProfile.For(PerformanceMode.Medium);
+        var high = PerformanceProfile.For(PerformanceMode.High);
+
+        Assert.False(low.TimerMotion);
+        Assert.Equal(GlyphAlertStyle.Flash, low.TimerAlert);
+        Assert.True(medium.TimerMotion);
+        Assert.Equal(GlyphAlertStyle.Fade, medium.TimerAlert);
+        Assert.True(high.TimerMotion);
+        Assert.Equal(GlyphAlertStyle.Bloom, high.TimerAlert);
+    }
+
+    [Fact]
     public void Each_mode_describes_itself_differently()
     {
         var summaries = Enum.GetValues<PerformanceMode>()

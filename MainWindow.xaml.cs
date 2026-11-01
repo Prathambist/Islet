@@ -31,19 +31,9 @@ namespace MusicIsland
             Peek,
             Notify,
             ExpandedMusic,
-            ExpandedAmbient
+            ExpandedAmbient,
+            TimerPill
         }
-
-        // A short "live activity" that drops out of the island
-        sealed record NotifyItem(
-            string App,
-            string Sender,
-            string Message,
-            BitmapSource? Icon,
-            Color Badge,
-            int Glyph,
-            Action OnClick,
-            Geometry? Logo = null);
 
         sealed class Panel
         {
@@ -104,7 +94,7 @@ namespace MusicIsland
         readonly Spring[] springs;
         readonly List<Panel> panels = new();
         readonly Panel statusSmallPanel, statusRingPanel, compactMusicPanel, smallMusicPanel, miniMusicPanel, miniIdlePanel, compactAmbientPanel, volumePanel, notchPanel,
-            peekMusicPanel, peekNotifyPanel, expandedMusicPanel, expandedAmbientPanel;
+            peekMusicPanel, peekNotifyPanel, expandedMusicPanel, expandedAmbientPanel, timerPillPanel;
 
         readonly Rectangle[] compactBars;
         readonly Rectangle[] smallBars;
@@ -128,25 +118,15 @@ namespace MusicIsland
         bool updatePending;
 
         string trackKey = "";
-        string? likeUri;
-        bool liked;
-        bool likeBusy;
 
         WeatherService.Weather? weather;
 
-        // Track-change peek and chat / update notifications
+        // Track-change peek
         bool peekVisible;
-        NotifyItem? currentNotify;
-        readonly Queue<NotifyItem> notifyQueue = new();
 
-        // Real cover art found for music videos, and lyrics, per song so switching
+        // Real cover art found for music videos, per song so switching
         // between players or back to a song is instant
         readonly Dictionary<string, BitmapSource> covers = new();
-        readonly Dictionary<string, IReadOnlyList<LyricsService.Line>?> lyricsCache = new();
-
-        // Synced lyrics
-        IReadOnlyList<LyricsService.Line>? lyrics;
-        LyricsService.Line? currentLyric;
 
         // Dragging on the progress bar
         bool seeking;
@@ -182,6 +162,7 @@ namespace MusicIsland
             peekNotifyPanel = AddPanel(PeekNotify, 0.9, 0.3);
             expandedMusicPanel = AddPanel(ExpandedMusic, 0.9, 0.42);
             expandedAmbientPanel = AddPanel(ExpandedAmbient, 0.9, 0.42);
+            timerPillPanel = AddPanel(TimerPill, 0.88);
 
             compactBars = CreateBars(CompactBars, 3, 1.5);
             smallBars = CreateBars(SmallBars, 2, 1);
@@ -190,6 +171,7 @@ namespace MusicIsland
             ApplyOrbColor(accentColor);
             BuildLyricStage();
             trimTimer.Tick += (s, e) => TrimMemory();
+            SetUpTimer();
 
             fullscreen = new FullscreenWatcher(() => new WindowInteropHelper(this).Handle);
             fullscreen.Changed += OnFullscreenChanged;
@@ -214,7 +196,7 @@ namespace MusicIsland
             {
                 hoverTimer.Stop();
 
-                if (IslandContainer.IsMouseOver && !volumeVisible && currentNotify == null)
+                if (IslandContainer.IsMouseOver && !volumeVisible && currentNotify == null && !TimerRinging)
                 {
                     hovering = true;
                     UpdateSurface();
@@ -309,6 +291,9 @@ namespace MusicIsland
                 notifications.Stop();
                 updateTimer.Stop();
                 trimTimer.Stop();
+                countdownTicker.Stop();
+                alertFlasher.Stop();
+                StopAlertSound();
                 visualizer.Dispose();
                 volume.Dispose();
                 tray?.Dispose();
@@ -367,7 +352,7 @@ namespace MusicIsland
             Left = (SystemParameters.PrimaryScreenWidth - Width) / 2;
             Top = 0;
 
-            tray = new TrayIcon(fullscreen, OpenSettings, () => Close(),
+            tray = new TrayIcon(fullscreen, countdown, OpenSettings, () => Close(),
                 () => availableUpdate, () => _ = InstallUpdateAsync());
 
             islandScale.Snap(SizeScale);
@@ -378,6 +363,7 @@ namespace MusicIsland
             systemStatus.Start();
             volumeKeys.Start();
             ApplySettings();
+            RestoreTimer();
             _ = RefreshWeatherAsync();
             weatherTimer.Start();
 
@@ -484,8 +470,9 @@ namespace MusicIsland
 
         Surface ChooseSurface()
         {
+            // You set the timer yourself, so unlike a message its alert does show over a full-screen app
             if (fullscreen.ProcessName != null && Settings.ShouldHideFor(fullscreen.ProcessName))
-                return Surface.Hidden;
+                return TimerRinging ? Surface.TimerPill : Surface.Hidden;
 
             bool idle = IsIdle();
 
@@ -507,7 +494,7 @@ namespace MusicIsland
                 return Surface.Notify;
 
             if (idle && Settings.IdleMode == IdleMode.Hide)
-                return Surface.Hidden;
+                return TimerActive ? Surface.TimerPill : Surface.Hidden;
 
             if (!idle)
                 return peekVisible ? Surface.Peek
@@ -538,6 +525,7 @@ namespace MusicIsland
             bool wasExpanded = surface is Surface.ExpandedMusic or Surface.ExpandedAmbient;
             surface = next;
             var profile = Profile;
+            RefreshAllTimerFaces();
             double quick = profile.SpringResponse;
 
             if (wasExpanded)
@@ -556,8 +544,9 @@ namespace MusicIsland
                 Surface.StatusRing => (38.0, 38.0, statusRingPanel),
                 Surface.Peek => (340.0, 64.0, peekMusicPanel),
                 Surface.Notify => (370.0, 76.0, peekNotifyPanel),
+                Surface.TimerPill => (112.0, 30.0, timerPillPanel),
                 Surface.ExpandedMusic => (400.0, ExpandedMusic.Height, expandedMusicPanel),
-                Surface.ExpandedAmbient => (400.0, 150.0, expandedAmbientPanel),
+                Surface.ExpandedAmbient => (400.0, ExpandedAmbient.Height, expandedAmbientPanel),
                 _ => (236.0, 38.0, compactMusicPanel)
             };
 
@@ -666,6 +655,8 @@ namespace MusicIsland
             busy |= UpdateProgress();
             busy |= StepStage(dt);
             busy |= UpdateMini(dt);
+            busy |= StepTimer();
+            busy |= StepAlert();
 
             // Nothing below changes once the springs rest, and it isn't free to redo
             if (settleFrames == 0)
@@ -727,8 +718,7 @@ namespace MusicIsland
             IslandContainer.Height = h;
 
             // Full capsule when small, opening into a continuous rounded card
-            double radius = Math.Min(h / 2, 19 + (h - 38) * 0.16);
-            radius = Math.Clamp(radius, 0, Math.Min(w, h) / 2);
+            double radius = GlyphPattern.IslandRadius(w, h);
 
             IslandShape.CornerRadius = new CornerRadius(radius);
 
@@ -808,7 +798,7 @@ namespace MusicIsland
             discSpeed.Target = playing && spin ? 42 : 0;
 
             bool disc = miniMusicPanel.Element.Visibility == Visibility.Visible;
-            bool orb = miniIdlePanel.Element.Visibility == Visibility.Visible;
+            bool orb = miniIdlePanel.Element.Visibility == Visibility.Visible && !TimerActive;
 
             if (disc)
             {
@@ -1284,198 +1274,6 @@ namespace MusicIsland
             }
         }
 
-        // ================= Like / heart =================
-
-        async Task RefreshLikedAsync(string key, TrackInfo info)
-        {
-            string title = info.Title;
-
-            // Only Spotify (app, or Spotify Web in a browser) can be liked
-            if (info.Source is not (MediaSource.Spotify or MediaSource.Browser))
-                return;
-
-            HeartButton.ToolTip = spotifyWeb.IsConnected
-                ? "Add to Liked Songs"
-                : "Connect Spotify in Settings to like songs";
-
-            if (!spotifyWeb.IsConnected)
-                return;
-
-            try
-            {
-                // The Web API can lag a moment behind the desktop app on skips
-                for (int attempt = 0; attempt < 4 && key == trackKey; attempt++)
-                {
-                    var current = await spotifyWeb.GetCurrentTrackAsync();
-
-                    if (current != null &&
-                        string.Equals(current.Value.Title, title, StringComparison.OrdinalIgnoreCase))
-                    {
-                        var saved = await spotifyWeb.IsSavedAsync(current.Value.Uri);
-
-                        if (key == trackKey)
-                        {
-                            likeUri = current.Value.Uri;
-                            SetLiked(saved == true, animate: false);
-                            UpdateSourceSlot();
-                        }
-
-                        return;
-                    }
-
-                    await Task.Delay(1200);
-                }
-            }
-            catch
-            {
-            }
-        }
-
-        async void Heart_Click(object sender, RoutedEventArgs e)
-        {
-            if (!spotifyWeb.IsConnected)
-            {
-                OpenSettings();
-                return;
-            }
-
-            if (likeBusy || track == null)
-                return;
-
-            likeBusy = true;
-
-            try
-            {
-                if (likeUri == null)
-                    await RefreshLikedAsync(trackKey, track);
-
-                if (likeUri == null)
-                    return;
-
-                bool target = !liked;
-                SetLiked(target, animate: true);
-
-                if (!await spotifyWeb.SetSavedAsync(likeUri, target))
-                    SetLiked(!target, animate: false);
-            }
-            catch
-            {
-                SetLiked(!liked, animate: false);
-            }
-            finally
-            {
-                likeBusy = false;
-            }
-        }
-
-        // The heart is shown for Spotify (and for browsers once the Web API confirms
-        // Spotify Web is playing this song); other players show their name instead
-        void UpdateSourceSlot()
-        {
-            bool spotify = track?.Source == MediaSource.Spotify || likeUri != null;
-            bool showHeart = track != null && spotify;
-
-            HeartSlot.Visibility = showHeart ? Visibility.Visible : Visibility.Collapsed;
-            SourceLabel.Visibility = track != null && !showHeart ? Visibility.Visible : Visibility.Collapsed;
-            SourceText.Text = track?.SourceName ?? "";
-
-            // Globe for browsers, music note for apps
-            SourceGlyph.Text = ((char)(track?.Source == MediaSource.Browser ? 0xE774 : 0xE8D6)).ToString();
-
-            // Title / artist links search Spotify, so only offer them for Spotify
-            TrackTitle.Cursor = TrackArtist.Cursor = spotify ? Cursors.Hand : null;
-            TrackTitle.ToolTip = spotify ? "Open album in Spotify" : null;
-            TrackArtist.ToolTip = spotify ? "Open artist in Spotify" : null;
-        }
-
-        void SetLiked(bool value, bool animate)
-        {
-            liked = value;
-            HeartGlyph.Text = value ? "\uEB52" : "\uEB51";
-            HeartGlyph.Foreground = value
-                ? new SolidColorBrush(Color.FromRgb(255, 55, 95))
-                : new SolidColorBrush(Color.FromArgb(204, 255, 255, 255));
-            HeartButton.ToolTip = value ? "Remove from Liked Songs" : "Add to Liked Songs";
-
-            if (!animate)
-                return;
-
-            // Squash then spring back with overshoot
-            heartScale.Value = value ? 0.45 : 0.75;
-            heartScale.Velocity = value ? 6 : 0;
-            heartScale.Target = 1;
-
-            if (value)
-            {
-                var duration = TimeSpan.FromMilliseconds(520);
-                var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-                var grow = new DoubleAnimation(0.4, 1.25, duration) { EasingFunction = ease };
-
-                HeartRingScale.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
-                HeartRingScale.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
-                HeartRing.BeginAnimation(UIElement.OpacityProperty,
-                    new DoubleAnimation(0.9, 0, duration) { EasingFunction = ease });
-            }
-
-            EnsureRendering();
-        }
-
-        // ================= Lyrics =================
-
-        async Task LoadLyricsAsync(string key, TrackInfo info)
-        {
-            if (!Settings.ShowLyrics || Profile.Lyrics == LyricsStyle.None)
-                return;
-
-            if (lyricsCache.TryGetValue(key, out var cached))
-            {
-                lyrics = cached;
-                ResetLyric();
-                ApplyLyricsLayout();
-                return;
-            }
-
-            // Browsers often report the duration a moment after the title
-            if (info.Duration <= TimeSpan.Zero)
-            {
-                await Task.Delay(1500);
-
-                if (key != trackKey || track == null)
-                    return;
-
-                info = track;
-            }
-
-            IReadOnlyList<LyricsService.Line>? result;
-
-            try
-            {
-                result = await LyricsService.GetAsync(
-                    info.Artist, info.Title, info.Album, info.Duration, info.Source == MediaSource.Browser);
-            }
-            catch
-            {
-                // Service unreachable: try again next time this song comes up
-                return;
-            }
-
-            // A miss without a known length may just be too early; don't remember it
-            if (result != null || info.Duration > TimeSpan.Zero)
-            {
-                if (lyricsCache.Count > 200)
-                    lyricsCache.Clear();
-
-                lyricsCache[key] = result;
-            }
-
-            if (key != trackKey)
-                return;
-
-            lyrics = result;
-            ResetLyric();
-            ApplyLyricsLayout();
-        }
-
         // ================= Cover art for videos =================
 
         async Task LoadCoverAsync(string key, TrackInfo info)
@@ -1537,57 +1335,6 @@ namespace MusicIsland
                 glow.Target = Profile.Glow && art != null && Settings.Theme != IslandTheme.AlbumTint ? 1 : 0;
                 EnsureRendering();
             }
-        }
-
-        void ApplyLyricsLayout()
-        {
-            var style = lyrics != null && Settings.ShowLyrics ? Profile.Lyrics : LyricsStyle.None;
-
-            LyricRow.Visibility = style == LyricsStyle.Line ? Visibility.Visible : Visibility.Collapsed;
-            LyricStage.Visibility = style == LyricsStyle.Stage ? Visibility.Visible : Visibility.Collapsed;
-            ExpandedMusic.Height = style switch
-            {
-                LyricsStyle.Line => 204,
-                LyricsStyle.Stage => 266,
-                _ => 172
-            };
-
-            if (surface == Surface.ExpandedMusic)
-            {
-                height.Target = ExpandedMusic.Height;
-                EnsureRendering();
-            }
-        }
-
-        // Before a song's first line there is no line to replace the old text with
-        void ResetLyric()
-        {
-            currentLyric = null;
-            LyricText.Text = ((char)0x266A).ToString();
-            ResetStage();
-        }
-
-        void UpdateLyric(TimeSpan position)
-        {
-            if (lyrics != null && LyricStage.Visibility == Visibility.Visible)
-                UpdateStage(position);
-
-            if (lyrics == null || LyricRow.Visibility != Visibility.Visible)
-                return;
-
-            // Show each line a touch early so it lands as it is sung
-            var line = LyricsService.LineAt(lyrics, position + TimeSpan.FromMilliseconds(200));
-
-            if (line == currentLyric)
-                return;
-
-            currentLyric = line;
-            LyricText.Text = line == null || line.Text.Length == 0 ? ((char)0x266A).ToString() : line.Text;
-
-            var duration = TimeSpan.FromMilliseconds(360);
-            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-            LyricText.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, duration) { EasingFunction = ease });
-            LyricShift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(9, 0, duration) { EasingFunction = ease });
         }
 
         // ================= Seeking =================
@@ -1662,100 +1409,6 @@ namespace MusicIsland
             seeking = false;
             seekGrow.Target = 0;
             EnsureRendering();
-        }
-
-        // ================= Notifications =================
-
-        void EnqueueChat(ChatNotification n)
-        {
-            var (badge, url, logo) = n.App switch
-            {
-                ChatApp.Discord => (Color.FromRgb(88, 101, 242),
-                    n.FromBrowser ? "https://discord.com/app" : "discord://", "DiscordLogo"),
-                ChatApp.WhatsApp => (Color.FromRgb(37, 211, 102),
-                    n.FromBrowser ? "https://web.whatsapp.com" : "whatsapp://", "WhatsAppLogo"),
-                ChatApp.Messenger => (Color.FromRgb(0, 132, 255), "https://www.messenger.com", "MessengerLogo"),
-                _ => (Color.FromRgb(72, 72, 74), (string?)null, (string?)null)
-            };
-
-            Enqueue(new NotifyItem(
-                n.AppName,
-                n.Sender,
-                Settings.NotifyShowMessage && n.Message.Length > 0 ? n.Message : "New message",
-                n.Icon,
-                badge,
-                0xE8BD,
-                () =>
-                {
-                    if (url != null)
-                        OpenUrl(url);
-                },
-                logo == null ? null : (Geometry)FindResource(logo)));
-        }
-
-        void Enqueue(NotifyItem item)
-        {
-            // Don't pop up over a full-screen game or video
-            if (fullscreen.ProcessName != null && Settings.ShouldHideFor(fullscreen.ProcessName))
-                return;
-
-            notifyQueue.Enqueue(item);
-
-            if (currentNotify == null)
-                ShowNextNotification();
-        }
-
-        void ShowNextNotification()
-        {
-            if (notifyQueue.Count == 0)
-            {
-                currentNotify = null;
-                UpdateSurface();
-                return;
-            }
-
-            bool replacing = currentNotify != null;
-            var item = notifyQueue.Dequeue();
-            currentNotify = item;
-
-            NotifyApp.Text = item.App;
-            NotifySender.Text = item.Sender;
-            NotifyMessage.Text = item.Message;
-
-            // The known apps always get their own logo; Windows often has none for them
-            NotifyIcon.Source = item.Logo == null ? item.Icon : null;
-            NotifyLogo.Data = item.Logo;
-            NotifyLogo.Visibility = item.Logo == null ? Visibility.Collapsed : Visibility.Visible;
-            NotifyBadgeGlyph.Visibility = item.Logo == null ? Visibility.Visible : Visibility.Collapsed;
-            NotifyBadge.Background = new SolidColorBrush(item.Badge);
-            NotifyBadgeGlyph.Text = ((char)item.Glyph).ToString();
-
-            hoverTimer.Stop();
-            notifyTimer.Stop();
-            notifyTimer.Start();
-
-            // A new message while one is showing gives the island a little nudge
-            if (replacing)
-            {
-                width.Velocity += 260;
-                height.Velocity += 90;
-            }
-
-            UpdateSurface();
-            EnsureRendering();
-        }
-
-        void Notify_Click(object sender, MouseButtonEventArgs e)
-        {
-            var item = currentNotify;
-
-            if (item == null)
-                return;
-
-            e.Handled = true;
-            notifyTimer.Stop();
-            ShowNextNotification();
-            item.OnClick();
         }
 
         // ================= Themes =================
@@ -1922,7 +1575,7 @@ namespace MusicIsland
         void OpenSpotifySearch(string query)
         {
             if (!string.IsNullOrWhiteSpace(query))
-                OpenUrl("https://open.media.com/search/" + Uri.EscapeDataString(query));
+                OpenUrl("https://open.spotify.com/search/" + Uri.EscapeDataString(query));
         }
 
         void OpenSpotify_Click(object sender, RoutedEventArgs e) => OpenUrl("spotify:");
