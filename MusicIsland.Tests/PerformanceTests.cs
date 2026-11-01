@@ -40,6 +40,32 @@ public class PerformanceTests
     }
 
     [Fact]
+    public void Only_high_draws_on_the_graphics_card_and_keeps_its_memory()
+    {
+        var low = PerformanceProfile.For(PerformanceMode.Low);
+        var medium = PerformanceProfile.For(PerformanceMode.Medium);
+        var high = PerformanceProfile.For(PerformanceMode.High);
+
+        Assert.False(low.GraphicsCard);
+        Assert.False(medium.GraphicsCard);
+        Assert.True(high.GraphicsCard);
+        Assert.True(low.TrimMemory);
+        Assert.True(medium.TrimMemory);
+        Assert.False(high.TrimMemory);
+    }
+
+    [Fact]
+    public void Each_mode_describes_itself_differently()
+    {
+        var summaries = Enum.GetValues<PerformanceMode>()
+            .Select(mode => PerformanceProfile.For(mode).Summary)
+            .ToList();
+
+        Assert.DoesNotContain(summaries, string.IsNullOrWhiteSpace);
+        Assert.Equal(summaries.Count, summaries.Distinct().Count());
+    }
+
+    [Fact]
     public void Current_line_sits_at_the_anchor_with_others_stacked_around_it()
     {
         var tops = LyricStageLayout.Tops(new double[] { 20, 40, 20 }, 1, 22, 5);

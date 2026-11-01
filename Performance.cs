@@ -23,25 +23,30 @@ namespace MusicIsland
         int HoverDelayMs,
         int CollapseDelayMs,
         double SpringResponse,
-        bool TrimMemory)
+        bool TrimMemory,
+        bool GraphicsCard,
+        string Summary)
     {
         static readonly PerformanceProfile LowProfile = new(
             AnimatedBars: false, RealAudio: false, Lyrics: LyricsStyle.None,
             SongPeek: false, SongFlair: false, SpinViews: false, Marquee: false, Glow: false, OpenStagger: false,
             ContinuousFps: 30, AudioIntervalMs: 0, HoverDelayMs: 170, CollapseDelayMs: 220,
-            SpringResponse: 0.85, TrimMemory: true);
+            SpringResponse: 0.85, TrimMemory: true, GraphicsCard: false,
+            Summary: "Lightest. Just the island and its controls, with no lyrics, moving bars, spinning views, scrolling titles, glow or song-change preview.");
 
         static readonly PerformanceProfile MediumProfile = new(
             AnimatedBars: true, RealAudio: true, Lyrics: LyricsStyle.Line,
             SongPeek: true, SongFlair: false, SpinViews: true, Marquee: true, Glow: true, OpenStagger: false,
             ContinuousFps: 30, AudioIntervalMs: 33, HoverDelayMs: 170, CollapseDelayMs: 220,
-            SpringResponse: 1, TrimMemory: true);
+            SpringResponse: 1, TrimMemory: true, GraphicsCard: false,
+            Summary: "Balanced. Live bars, spinning views, one lyric line and the song-change preview, at 30 frames per second.");
 
         static readonly PerformanceProfile HighProfile = new(
             AnimatedBars: true, RealAudio: true, Lyrics: LyricsStyle.Stage,
             SongPeek: true, SongFlair: true, SpinViews: true, Marquee: true, Glow: true, OpenStagger: true,
             ContinuousFps: 0, AudioIntervalMs: 0, HoverDelayMs: 110, CollapseDelayMs: 160,
-            SpringResponse: 0.85, TrimMemory: false);
+            SpringResponse: 0.85, TrimMemory: false, GraphicsCard: true,
+            Summary: "Smoothest. Adds the full lyric view, song-change animation and quicker hover at full frame rate, drawn on the graphics card.");
 
         public static PerformanceProfile For(PerformanceMode mode) => mode switch
         {

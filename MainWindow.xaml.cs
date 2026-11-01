@@ -1227,6 +1227,7 @@ namespace MusicIsland
                 {
                     bool hasTitle = next.Title != MediaController.UnknownTitle;
                     trackKey = key;
+                    ScheduleMemoryTrim();
 
                     // iOS-style "now playing" peek when the song changes by itself
                     if (hadTitle && hasTitle)

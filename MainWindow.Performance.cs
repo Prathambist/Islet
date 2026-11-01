@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Windows.Media;
@@ -24,6 +25,7 @@ namespace MusicIsland
         {
             var profile = Profile;
 
+            RenderOptions.ProcessRenderMode = profile.GraphicsCard ? RenderMode.Default : RenderMode.SoftwareOnly;
             hoverTimer.Interval = TimeSpan.FromMilliseconds(profile.HoverDelayMs);
             collapseTimer.Interval = TimeSpan.FromMilliseconds(profile.CollapseDelayMs);
             visualizer.MinInterval = TimeSpan.FromMilliseconds(profile.AudioIntervalMs);
@@ -94,8 +96,19 @@ namespace MusicIsland
             if (!Profile.TrimMemory || surface is Surface.ExpandedMusic or Surface.ExpandedAmbient)
                 return;
 
-            GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
-            SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, -1, -1);
+            // Never in the way of someone about to use the island
+            if (hovering)
+            {
+                trimTimer.Start();
+                return;
+            }
+
+            // A background collection, so animations keep running while it works
+            Task.Run(() =>
+            {
+                GC.Collect(2, GCCollectionMode.Forced, blocking: false);
+                SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, -1, -1);
+            });
         }
 
         // ================= Song change flair =================
