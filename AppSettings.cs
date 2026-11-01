@@ -24,7 +24,8 @@ namespace MusicIsland
     public enum MusicLook
     {
         Pill,
-        Disc
+        Disc,
+        Small
     }
 
     public enum IslandTheme

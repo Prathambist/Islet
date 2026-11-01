@@ -4,6 +4,10 @@ A sleek, fluid **Dynamic Island** music widget for Windows. It works with the Sp
 
 It floats at the top-center of your screen as a pill-shaped capsule displaying animated equalizer waves and album art. Hovering over it fluidly morphs the island into an expanded Now Playing card with playback controls, marquee track scrolling, and dynamic color theming.
 
+<p align="center">
+  <img src="docs/demo.gif" alt="MusicIsland playing a song, peeking at the next one, switching between its music views, showing a Discord notification, then cycling through its idle looks" width="630">
+</p>
+
 ---
 
 ## Quick Install (PowerShell)
@@ -37,7 +41,7 @@ irm https://raw.githubusercontent.com/Prathambist/MusicIsland/main/uninstall.ps1
 - **Like button:** A heart in the expanded card adds or removes the current song from your Liked Songs through the Spotify Web API. It works with the Spotify app and with Spotify Web. For other players, the heart is replaced by the source's name. Optional; see below.
 - **Full-screen auto-hide, per app:** The island hides when a game, video or slide show is full-screen. Apps are listed in Settings the first time they go full-screen, and each one can be set to *Default*, *Always hide* or *Always show*. You can also change the rule for the current full-screen app from the tray icon.
 - **Idle / ambient state:** When Spotify is closed or has been paused for a while, the island can shrink to a small camera notch or circle (showing the temperature once a weather location is set), hide completely, or show a clock (with optional weather from Open-Meteo). Hovering it then shows the time, date, weather and an *Open Spotify* button.
-- **Small circle views:** While music plays, the island can shrink to a small circle with the album art spinning (it winds down when you pause). When idle, it can be a small circle with a slowly turning ring. Choose them under *While music plays* and *Idle look* in Settings.
+- **Small views:** While music plays, the island can shrink to a notch-sized pill with the album art and bars, or to a small circle with the album art spinning (it winds down when you pause). When idle, it can be a small circle with a slowly turning ring. Choose them under *While music plays* and *Idle look* in Settings.
 - **Adaptive color theming:** The visualizer bars and the expanded card's glow take their color from the album artwork.
 - **Media controls and seeking:** Previous / Play-Pause / Next, and a live progress bar you can click or drag to jump within the song. Long song names scroll.
 - **Synced lyrics:** When you open the island, the line being sung appears under the song. Lyrics come from [LRCLIB](https://lrclib.net), and titles from YouTube-style uploads are cleaned up before the lookup.

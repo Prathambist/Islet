@@ -129,7 +129,7 @@ namespace MusicIsland
 
             appearance.Children.Add(Label("While music plays"));
             appearance.Children.Add(Segmented(
-                new[] { "Pill with bars", "Spinning album art" },
+                new[] { "Pill with bars", "Spinning album art", "Small pill" },
                 (int)Settings.MusicLook,
                 i => { Settings.MusicLook = (MusicLook)i; Settings.Save(); }));
 

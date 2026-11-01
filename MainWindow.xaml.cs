@@ -21,6 +21,7 @@ namespace MusicIsland
             Hidden,
             Notch,
             CompactMusic,
+            SmallMusic,
             MiniMusic,
             MiniIdle,
             CompactAmbient,
@@ -83,10 +84,11 @@ namespace MusicIsland
 
         readonly Spring[] springs;
         readonly List<Panel> panels = new();
-        readonly Panel compactMusicPanel, miniMusicPanel, miniIdlePanel, compactAmbientPanel, volumePanel, notchPanel,
+        readonly Panel compactMusicPanel, smallMusicPanel, miniMusicPanel, miniIdlePanel, compactAmbientPanel, volumePanel, notchPanel,
             peekMusicPanel, peekNotifyPanel, expandedMusicPanel, expandedAmbientPanel;
 
         readonly Rectangle[] compactBars;
+        readonly Rectangle[] smallBars;
         readonly Rectangle[] expandedBars;
         readonly Rectangle[] peekBars;
         readonly float[] audioLevels = new float[AudioVisualizer.BandCount];
@@ -149,6 +151,7 @@ namespace MusicIsland
             springs = new[] { width, height, islandOpacity, islandScale, volumeLevel, volumeRow, glow, heartScale, seekGrow, discSpeed };
 
             compactMusicPanel = AddPanel(CompactMusic, 0.88);
+            smallMusicPanel = AddPanel(SmallMusic, 0.88);
             miniMusicPanel = AddPanel(MiniMusic, 0.7);
             miniIdlePanel = AddPanel(MiniIdle, 0.7);
             compactAmbientPanel = AddPanel(CompactAmbient, 0.88);
@@ -160,6 +163,7 @@ namespace MusicIsland
             expandedAmbientPanel = AddPanel(ExpandedAmbient, 0.9, 0.42);
 
             compactBars = CreateBars(CompactBars, 3, 1.5);
+            smallBars = CreateBars(SmallBars, 2, 1);
             expandedBars = CreateBars(ExpandedBars, 3.5, 1.75);
             peekBars = CreateBars(PeekBars, 3, 1.5);
             ApplyOrbColor(accentColor);
@@ -453,6 +457,7 @@ namespace MusicIsland
             if (!idle)
                 return peekVisible ? Surface.Peek
                     : Settings.MusicLook == MusicLook.Disc ? Surface.MiniMusic
+                    : Settings.MusicLook == MusicLook.Small ? Surface.SmallMusic
                     : Surface.CompactMusic;
 
             return Settings.IdleMode switch
@@ -477,6 +482,7 @@ namespace MusicIsland
             {
                 Surface.Hidden => (100.0, 28.0, null),
                 Surface.Notch => (112.0, 30.0, notchPanel),
+                Surface.SmallMusic => (112.0, 30.0, smallMusicPanel),
                 Surface.MiniMusic => (38.0, 38.0, miniMusicPanel),
                 Surface.MiniIdle => (30.0, 30.0, miniIdlePanel),
                 Surface.CompactAmbient => (210.0, 38.0, compactAmbientPanel),
@@ -639,6 +645,7 @@ namespace MusicIsland
         bool UpdateBars(double dt)
         {
             bool visible = compactMusicPanel.Element.Visibility == Visibility.Visible ||
+                           smallMusicPanel.Element.Visibility == Visibility.Visible ||
                            expandedMusicPanel.Element.Visibility == Visibility.Visible ||
                            peekMusicPanel.Element.Visibility == Visibility.Visible;
 
@@ -666,6 +673,7 @@ namespace MusicIsland
                 moving |= barLevels[i] > 0.002;
 
                 compactBars[i].Height = 3 + barLevels[i] * 17;
+                smallBars[i].Height = 2 + barLevels[i] * 13;
                 expandedBars[i].Height = 3.5 + barLevels[i] * 22;
                 peekBars[i].Height = 3 + barLevels[i] * 17;
             }
@@ -980,6 +988,7 @@ namespace MusicIsland
                     TrackTitle.Text = "Not playing";
                     TrackArtist.Text = "Play something to get started";
                     CompactAlbumArt.Source = null;
+                    SmallAlbumArt.Source = null;
                     AlbumArt.Source = null;
                     DiscArt.Fill = null;
                     playing = false;
@@ -1318,6 +1327,7 @@ namespace MusicIsland
                 return;
 
             CompactAlbumArt.Source = art;
+            SmallAlbumArt.Source = art;
             AlbumArt.Source = art;
             PeekArt.Source = art;
             DiscArt.Fill = art == null ? null : new ImageBrush(art) { Stretch = Stretch.UniformToFill };
