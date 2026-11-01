@@ -221,6 +221,13 @@ namespace MusicIsland
         /// <summary>The line being sung at <paramref name="position"/>, or null before the first.</summary>
         public static Line? LineAt(IReadOnlyList<Line> lines, TimeSpan position)
         {
+            int index = IndexAt(lines, position);
+            return index >= 0 ? lines[index] : null;
+        }
+
+        /// <summary>Index of the line being sung at <paramref name="position"/>, or -1 before the first.</summary>
+        public static int IndexAt(IReadOnlyList<Line> lines, TimeSpan position)
+        {
             int lo = 0, hi = lines.Count - 1, found = -1;
 
             while (lo <= hi)
@@ -238,7 +245,7 @@ namespace MusicIsland
                 }
             }
 
-            return found >= 0 ? lines[found] : null;
+            return found;
         }
     }
 }

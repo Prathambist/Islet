@@ -9,6 +9,9 @@
     <Version>1.1.0</Version>
     <!-- WinForms is used only for the system tray icon -->
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- A background widget: favour a small footprint over peak throughput -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,6 +29,7 @@
 
   <ItemGroup>
     <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 </Project>

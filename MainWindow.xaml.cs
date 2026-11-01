@@ -22,6 +22,8 @@ namespace MusicIsland
             Notch,
             CompactMusic,
             SmallMusic,
+            StatusSmall,
+            StatusRing,
             MiniMusic,
             MiniIdle,
             CompactAmbient,
@@ -54,6 +56,20 @@ namespace MusicIsland
         readonly SpotifyWebApi spotifyWeb = new();
         readonly AudioVisualizer visualizer = new();
         readonly VolumeController volume = new();
+        readonly SystemStatusWatcher systemStatus = new();
+        readonly VolumeKeyHook volumeKeys = new();
+
+        static readonly Brush VolumeBrush = FrozenBrush(0x0A, 0x84, 0xFF);
+        static readonly Brush BrightnessBrush = FrozenBrush(0xFF, 0xD6, 0x0A);
+        static readonly Brush ConnectedBrush = FrozenBrush(0x30, 0xD1, 0x58);
+        static readonly Brush DisconnectedBrush = FrozenBrush(0x8E, 0x8E, 0x93);
+
+        static Brush FrozenBrush(byte r, byte g, byte b)
+        {
+            var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+            brush.Freeze();
+            return brush;
+        }
         readonly NotificationWatcher notifications = new();
         readonly FullscreenWatcher fullscreen;
         TrayIcon? tray;
@@ -78,13 +94,16 @@ namespace MusicIsland
         readonly Spring glow = new(0, 0.5, 1);
         readonly Spring heartScale = new(1, 0.35, 0.42);
         readonly Spring seekGrow = new(0, 0.2, 1);
+        readonly Spring artPop = new(1, 0.48, 0.58);
+        readonly Spring peekLift = new(0, 0.5, 0.82);
+        readonly Spring openRows = new(0, 0.5, 0.86);
 
         // Degrees per second, so the disc winds down and back up like a record
         readonly Spring discSpeed = new(0, 0.9, 1);
 
         readonly Spring[] springs;
         readonly List<Panel> panels = new();
-        readonly Panel compactMusicPanel, smallMusicPanel, miniMusicPanel, miniIdlePanel, compactAmbientPanel, volumePanel, notchPanel,
+        readonly Panel statusSmallPanel, statusRingPanel, compactMusicPanel, smallMusicPanel, miniMusicPanel, miniIdlePanel, compactAmbientPanel, volumePanel, notchPanel,
             peekMusicPanel, peekNotifyPanel, expandedMusicPanel, expandedAmbientPanel;
 
         readonly Rectangle[] compactBars;
@@ -148,7 +167,7 @@ namespace MusicIsland
         {
             InitializeComponent();
 
-            springs = new[] { width, height, islandOpacity, islandScale, volumeLevel, volumeRow, glow, heartScale, seekGrow, discSpeed };
+            springs = new[] { width, height, islandOpacity, islandScale, volumeLevel, volumeRow, glow, heartScale, seekGrow, discSpeed, artPop, peekLift, openRows };
 
             compactMusicPanel = AddPanel(CompactMusic, 0.88);
             smallMusicPanel = AddPanel(SmallMusic, 0.88);
@@ -156,6 +175,8 @@ namespace MusicIsland
             miniIdlePanel = AddPanel(MiniIdle, 0.7);
             compactAmbientPanel = AddPanel(CompactAmbient, 0.88);
             volumePanel = AddPanel(CompactVolume, 0.88);
+            statusSmallPanel = AddPanel(StatusSmall, 0.88);
+            statusRingPanel = AddPanel(StatusRing, 0.7);
             notchPanel = AddPanel(NotchPanel, 0.9);
             peekMusicPanel = AddPanel(PeekMusic, 0.9, 0.3);
             peekNotifyPanel = AddPanel(PeekNotify, 0.9, 0.3);
@@ -167,9 +188,27 @@ namespace MusicIsland
             expandedBars = CreateBars(ExpandedBars, 3.5, 1.75);
             peekBars = CreateBars(PeekBars, 3, 1.5);
             ApplyOrbColor(accentColor);
+            BuildLyricStage();
+            trimTimer.Tick += (s, e) => TrimMemory();
 
             fullscreen = new FullscreenWatcher(() => new WindowInteropHelper(this).Handle);
             fullscreen.Changed += OnFullscreenChanged;
+
+            systemStatus.VolumeChanged += (level, muted) => Dispatcher.BeginInvoke(() =>
+            {
+                if (Settings.ShowSystemStatus)
+                    ShowLevel(level, muted, SystemStatus.VolumeGlyph(level, muted), VolumeBrush);
+            });
+            systemStatus.BrightnessChanged += level => Dispatcher.BeginInvoke(() =>
+            {
+                if (Settings.ShowSystemStatus)
+                    ShowLevel(level / 100f, false, "", BrightnessBrush);
+            });
+            systemStatus.DeviceChanged += (name, change) => Dispatcher.BeginInvoke(() =>
+            {
+                if (Settings.ShowSystemStatus)
+                    ShowDevice(name, change);
+            });
 
             hoverTimer.Tick += (s, e) =>
             {
@@ -238,6 +277,10 @@ namespace MusicIsland
             {
                 UpdateClock();
                 UpdateSurface();
+
+                // Without a frame loop in Low mode, the card's progress moves once a second
+                if (!Profile.AnimatedBars)
+                    UpdateProgress();
             };
 
             weatherTimer.Tick += async (s, e) => await RefreshWeatherAsync();
@@ -261,8 +304,11 @@ namespace MusicIsland
                 clockTimer.Stop();
                 weatherTimer.Stop();
                 fullscreen.Stop();
+                volumeKeys.Dispose();
+                systemStatus.Dispose();
                 notifications.Stop();
                 updateTimer.Stop();
+                trimTimer.Stop();
                 visualizer.Dispose();
                 volume.Dispose();
                 tray?.Dispose();
@@ -329,6 +375,8 @@ namespace MusicIsland
             UpdateClock();
             clockTimer.Start();
             fullscreen.Start();
+            systemStatus.Start();
+            volumeKeys.Start();
             ApplySettings();
             _ = RefreshWeatherAsync();
             weatherTimer.Start();
@@ -372,8 +420,8 @@ namespace MusicIsland
 
         void ApplySettings()
         {
-            if (Settings.RealAudioVisualizer && !visualizer.IsRunning && !visualizer.Start())
-                Log.Error("Audio loopback capture could not start");
+            ApplyPerformance();
+            SyncVisualizer(surface);
 
             if (Settings.NotifyDiscord || Settings.NotifyWhatsApp || Settings.NotifyMessenger || Settings.NotifyBrowsers)
             {
@@ -445,7 +493,14 @@ namespace MusicIsland
                 return track != null ? Surface.ExpandedMusic : Surface.ExpandedAmbient;
 
             if (volumeVisible)
-                return Surface.Volume;
+            {
+                return SystemStatus.LayoutFor(idle, Settings.IdleMode, Settings.MusicLook) switch
+                {
+                    StatusLayout.Ring => Surface.StatusRing,
+                    StatusLayout.Small => Surface.StatusSmall,
+                    _ => Surface.Volume
+                };
+            }
 
             // Messages show up even when the idle island is hidden
             if (currentNotify != null)
@@ -472,11 +527,21 @@ namespace MusicIsland
         {
             var next = ChooseSurface();
 
+            // When the island can't appear, Windows keeps its own pop-up
+            bool hiddenForApp = fullscreen.ProcessName != null && Settings.ShouldHideFor(fullscreen.ProcessName);
+            volumeKeys.Active = Settings.ShowSystemStatus && Settings.ReplaceVolumePopup && !hiddenForApp;
+            SyncVisualizer(next);
+
             if (next == surface)
                 return;
 
             bool wasExpanded = surface is Surface.ExpandedMusic or Surface.ExpandedAmbient;
             surface = next;
+            var profile = Profile;
+            double quick = profile.SpringResponse;
+
+            if (wasExpanded)
+                ScheduleMemoryTrim();
 
             (double w, double h, Panel? active) = next switch
             {
@@ -487,6 +552,8 @@ namespace MusicIsland
                 Surface.MiniIdle => (30.0, 30.0, miniIdlePanel),
                 Surface.CompactAmbient => (210.0, 38.0, compactAmbientPanel),
                 Surface.Volume => (264.0, 38.0, volumePanel),
+                Surface.StatusSmall => (150.0, 30.0, statusSmallPanel),
+                Surface.StatusRing => (38.0, 38.0, statusRingPanel),
                 Surface.Peek => (340.0, 64.0, peekMusicPanel),
                 Surface.Notify => (370.0, 76.0, peekNotifyPanel),
                 Surface.ExpandedMusic => (400.0, ExpandedMusic.Height, expandedMusicPanel),
@@ -501,18 +568,24 @@ namespace MusicIsland
             // compact-to-compact morphs (volume, notch) get a lively bounce.
             if (expanding)
             {
-                width.Configure(0.5, 0.74);
-                height.Configure(0.5, 0.76);
+                width.Configure(0.5 * quick, 0.74);
+                height.Configure(0.5 * quick, 0.76);
+
+                if (next == Surface.ExpandedMusic && !wasExpanded && profile.OpenStagger)
+                {
+                    openRows.Snap(1);
+                    openRows.Target = 0;
+                }
             }
             else if (wasExpanded)
             {
-                width.Configure(0.42, 0.86);
-                height.Configure(0.38, 0.9);
+                width.Configure(0.42 * quick, 0.86);
+                height.Configure(0.38 * quick, 0.9);
             }
             else
             {
-                width.Configure(0.4, 0.68);
-                height.Configure(0.4, 0.75);
+                width.Configure(0.4 * quick, 0.68);
+                height.Configure(0.4 * quick, 0.75);
             }
 
             width.Target = w;
@@ -524,8 +597,10 @@ namespace MusicIsland
             bool hidden = next == Surface.Hidden;
             islandOpacity.Target = hidden ? 0 : 1;
             islandScale.Target = (hidden ? 0.7 : 1) * SizeScale;
-            glow.Target = next == Surface.ExpandedMusic && track?.Artwork != null &&
-                          Settings.Theme != IslandTheme.AlbumTint ? 1 : 0;
+            glow.Target = !profile.Glow || track?.Artwork == null || Settings.Theme == IslandTheme.AlbumTint ? 0
+                : next == Surface.ExpandedMusic ? 1
+                : next == Surface.Peek && profile.SongFlair ? 0.55
+                : 0;
 
             if (!hidden)
                 IslandContainer.IsHitTestVisible = true;
@@ -540,8 +615,12 @@ namespace MusicIsland
 
         // ================= Frame loop =================
 
+        int settleFrames;
+
         void EnsureRendering()
         {
+            settleFrames = 2;
+
             if (rendering)
                 return;
 
@@ -557,6 +636,24 @@ namespace MusicIsland
             if (time == lastFrame)
                 return;
 
+            bool shapeMoving = false;
+
+            foreach (var spring in springs)
+                shapeMoving |= !spring.IsSettled;
+
+            foreach (var panel in panels)
+                shapeMoving |= !panel.Opacity.IsSettled;
+
+            if (shapeMoving)
+                settleFrames = 2;
+
+            // Bars and spinning art can run slower; anything changing shape never does
+            int fps = Profile.ContinuousFps;
+
+            if (settleFrames == 0 && fps > 0 && lastFrame != TimeSpan.Zero &&
+                (time - lastFrame).TotalSeconds < 1.0 / fps - 0.004)
+                return;
+
             double dt = lastFrame == TimeSpan.Zero
                 ? 1.0 / 60
                 : Math.Clamp((time - lastFrame).TotalSeconds, 0, 0.05);
@@ -564,6 +661,26 @@ namespace MusicIsland
             lastFrame = time;
 
             bool busy = false;
+
+            busy |= UpdateBars(dt);
+            busy |= UpdateProgress();
+            busy |= StepStage(dt);
+            busy |= UpdateMini(dt);
+
+            // Nothing below changes once the springs rest, and it isn't free to redo
+            if (settleFrames == 0)
+            {
+                if (!busy)
+                {
+                    CompositionTarget.Rendering -= OnRendering;
+                    rendering = false;
+                }
+
+                return;
+            }
+
+            settleFrames--;
+            busy = busy || settleFrames > 0;
 
             foreach (var spring in springs)
             {
@@ -580,13 +697,13 @@ namespace MusicIsland
                 ApplyPanel(panel);
             }
 
-            busy |= UpdateBars(dt);
-            busy |= UpdateProgress();
-            busy |= UpdateMini(dt);
+            ApplyFlair();
 
             double trackWidth = Math.Max(0, CompactVolumeFill.Parent is FrameworkElement f ? f.ActualWidth : 0);
             CompactVolumeFill.Width = trackWidth * Math.Clamp(volumeLevel.Value, 0, 1);
             VolumeRowFill.Width = VolumeTrack.ActualWidth * Math.Clamp(volumeLevel.Value, 0, 1);
+            StatusSmallFill.Width = StatusSmallTrack.ActualWidth * Math.Clamp(volumeLevel.Value, 0, 1);
+            UpdateStatusRing(Math.Clamp(volumeLevel.Value, 0, 1));
             VolumeRow.Opacity = volumeRow.Value;
             ProgressRow.Opacity = 1 - volumeRow.Value;
 
@@ -652,6 +769,11 @@ namespace MusicIsland
             if (!visible)
                 return false;
 
+            if (!Profile.AnimatedBars)
+                return ApplyStillBars();
+
+            barsStill = false;
+
             bool real = Settings.RealAudioVisualizer && visualizer.IsRunning;
 
             if (!playing)
@@ -672,10 +794,7 @@ namespace MusicIsland
                 barLevels[i] += (target - barLevels[i]) * (1 - Math.Exp(-rate * dt));
                 moving |= barLevels[i] > 0.002;
 
-                compactBars[i].Height = 3 + barLevels[i] * 17;
-                smallBars[i].Height = 2 + barLevels[i] * 13;
-                expandedBars[i].Height = 3.5 + barLevels[i] * 22;
-                peekBars[i].Height = 3 + barLevels[i] * 17;
+                SetBarHeights(i, barLevels[i]);
             }
 
             return moving;
@@ -684,7 +803,9 @@ namespace MusicIsland
         // Spins the mini views; time-based, so a slow frame never makes them stutter
         bool UpdateMini(double dt)
         {
-            discSpeed.Target = playing ? 42 : 0;
+            bool spin = Profile.SpinViews;
+
+            discSpeed.Target = playing && spin ? 42 : 0;
 
             bool disc = miniMusicPanel.Element.Visibility == Visibility.Visible;
             bool orb = miniIdlePanel.Element.Visibility == Visibility.Visible;
@@ -693,6 +814,12 @@ namespace MusicIsland
             {
                 discAngle = (discAngle + discSpeed.Value * dt) % 360;
                 DiscRotate.Angle = discAngle;
+            }
+
+            if (orb && !spin)
+            {
+                OrbDotScale.ScaleX = OrbDotScale.ScaleY = 1;
+                orb = false;
             }
 
             if (orb)
@@ -764,7 +891,7 @@ namespace MusicIsland
             if (ElapsedText.Text != elapsed) ElapsedText.Text = elapsed;
             if (RemainingText.Text != remaining) RemainingText.Text = remaining;
 
-            return playing || seeking;
+            return seeking || (playing && Profile.AnimatedBars);
         }
 
         static string FormatTime(TimeSpan t) =>
@@ -801,30 +928,97 @@ namespace MusicIsland
                 return;
 
             var (level, muted, _) = result.Value;
+            ShowLevel(level, muted, SystemStatus.VolumeGlyph(level, muted), VolumeBrush);
+        }
 
-            // Scrolling the small island shows the pill instead of opening it
+        // ================= Volume / brightness / devices =================
+
+        // Display only: the level belongs to Windows, the island just shows it
+        void ShowLevel(float level, bool muted, string glyph, Brush color)
+        {
+            SetStatusContent(glyph, color, device: false);
+
+            // A level change shows the status view instead of opening the island
             hoverTimer.Stop();
-            volumeVisible = true;
-            volumeLevel.Target = level;
+            volumeLevel.Target = muted ? 0 : level;
 
             if (hovering)
                 volumeRow.Target = 1;
 
-            string glyph = muted || level <= 0.001f ? "\uE74F"
-                : level < 0.34f ? "\uE993"
-                : level < 0.67f ? "\uE994"
-                : "\uE995";
-
-            CompactVolumeGlyph.Text = glyph;
             VolumeRowGlyph.Text = glyph;
+            VolumeRowFill.Background = color;
+            CompactVolumeFill.Background = color;
+            StatusSmallFill.Background = color;
             CompactVolumeText.Text = ((int)Math.Round(level * 100)).ToString();
             VolumeRowText.Text = (int)Math.Round(level * 100) + "%";
 
+            RevealStatus(TimeSpan.FromMilliseconds(1400));
+        }
+
+        void ShowDevice(string name, DeviceChange change)
+        {
+            string glyph = change == DeviceChange.AudioOutput ? "\uE7F6" : "\uE702";
+            var color = change == DeviceChange.Disconnected ? DisconnectedBrush : ConnectedBrush;
+
+            SetStatusContent(glyph, color, device: true);
+
+            hoverTimer.Stop();
+            volumeLevel.Target = 1;
+            CompactDeviceName.Text = name;
+            CompactDeviceState.Text = SystemStatus.DeviceText(change);
+            StatusSmallName.Text = name;
+
+            RevealStatus(TimeSpan.FromMilliseconds(2600));
+        }
+
+        void SetStatusContent(string glyph, Brush color, bool device)
+        {
+            var level = device ? Visibility.Collapsed : Visibility.Visible;
+            var details = device ? Visibility.Visible : Visibility.Collapsed;
+
+            CompactVolumeGlyph.Text = glyph;
+            CompactVolumeGlyph.Foreground = color;
+            CompactVolumeTrack.Visibility = level;
+            CompactVolumeText.Visibility = level;
+            CompactDeviceName.Visibility = details;
+            CompactDeviceState.Visibility = details;
+
+            StatusSmallGlyph.Text = glyph;
+            StatusSmallGlyph.Foreground = color;
+            StatusSmallTrack.Visibility = level;
+            StatusSmallName.Visibility = details;
+
+            StatusRingGlyph.Text = glyph;
+            StatusRingGlyph.Foreground = color;
+            StatusRingFill.Stroke = color;
+        }
+
+        void RevealStatus(TimeSpan duration)
+        {
+            volumeVisible = true;
             volumeTimer.Stop();
+            volumeTimer.Interval = duration;
             volumeTimer.Start();
 
             UpdateSurface();
             EnsureRendering();
+        }
+
+        double statusRingShown = -1;
+
+        void UpdateStatusRing(double level)
+        {
+            if (Math.Abs(level - statusRingShown) < 0.002)
+                return;
+
+            statusRingShown = level;
+            StatusRingFill.Visibility = level < 0.005 ? Visibility.Hidden : Visibility.Visible;
+
+            // Dash lengths count in stroke widths; the stroke's center line is what gets dashed
+            double around = Math.PI * (StatusRingFill.Width - StatusRingFill.StrokeThickness) / StatusRingFill.StrokeThickness;
+            StatusRingFill.StrokeDashArray = level >= 0.995
+                ? null
+                : new DoubleCollection { around * level, around * 2 };
         }
 
         // ================= Theme =================
@@ -928,7 +1122,7 @@ namespace MusicIsland
         {
             StopTitleMarquee();
 
-            if (surface != Surface.ExpandedMusic || TitleClip.ActualWidth <= 0)
+            if (surface != Surface.ExpandedMusic || TitleClip.ActualWidth <= 0 || !Profile.Marquee)
                 return;
 
             TrackTitle.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -1013,6 +1207,7 @@ namespace MusicIsland
                 TrackTitle.Text = next.Title;
                 TrackArtist.Text = next.Artist;
                 PlayPauseButton.Content = next.Playing ? "\uE769" : "\uE768";
+                UpdatePlaybackModes(next);
 
                 var art = EffectiveArt(next, key);
 
@@ -1034,7 +1229,10 @@ namespace MusicIsland
                     trackKey = key;
 
                     // iOS-style "now playing" peek when the song changes by itself
-                    if (hadTitle && hasTitle && next.Playing && !hovering)
+                    if (hadTitle && hasTitle)
+                        PlaySongFlair();
+
+                    if (hadTitle && hasTitle && next.Playing && !hovering && Profile.SongPeek)
                     {
                         PeekArt.Source = art;
                         PeekTitle.Text = next.Title;
@@ -1225,7 +1423,7 @@ namespace MusicIsland
 
         async Task LoadLyricsAsync(string key, TrackInfo info)
         {
-            if (!Settings.ShowLyrics)
+            if (!Settings.ShowLyrics || Profile.Lyrics == LyricsStyle.None)
                 return;
 
             if (lyricsCache.TryGetValue(key, out var cached))
@@ -1335,17 +1533,23 @@ namespace MusicIsland
 
             if (surface == Surface.ExpandedMusic)
             {
-                glow.Target = art != null && Settings.Theme != IslandTheme.AlbumTint ? 1 : 0;
+                glow.Target = Profile.Glow && art != null && Settings.Theme != IslandTheme.AlbumTint ? 1 : 0;
                 EnsureRendering();
             }
         }
 
         void ApplyLyricsLayout()
         {
-            bool show = lyrics != null && Settings.ShowLyrics;
+            var style = lyrics != null && Settings.ShowLyrics ? Profile.Lyrics : LyricsStyle.None;
 
-            LyricRow.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-            ExpandedMusic.Height = show ? 204 : 172;
+            LyricRow.Visibility = style == LyricsStyle.Line ? Visibility.Visible : Visibility.Collapsed;
+            LyricStage.Visibility = style == LyricsStyle.Stage ? Visibility.Visible : Visibility.Collapsed;
+            ExpandedMusic.Height = style switch
+            {
+                LyricsStyle.Line => 204,
+                LyricsStyle.Stage => 266,
+                _ => 172
+            };
 
             if (surface == Surface.ExpandedMusic)
             {
@@ -1359,10 +1563,14 @@ namespace MusicIsland
         {
             currentLyric = null;
             LyricText.Text = ((char)0x266A).ToString();
+            ResetStage();
         }
 
         void UpdateLyric(TimeSpan position)
         {
+            if (lyrics != null && LyricStage.Visibility == Visibility.Visible)
+                UpdateStage(position);
+
             if (lyrics == null || LyricRow.Visibility != Visibility.Visible)
                 return;
 
@@ -1421,7 +1629,13 @@ namespace MusicIsland
             ProgressTrack.ReleaseMouseCapture();
             e.Handled = true;
 
-            var target = track.Duration * seekFraction;
+            await SeekToAsync(track.Duration * seekFraction);
+        }
+
+        async Task SeekToAsync(TimeSpan target)
+        {
+            if (track == null)
+                return;
 
             // Move the bar right away; the player confirms a moment later
             track = track with { Position = target, PositionUpdated = DateTimeOffset.Now };

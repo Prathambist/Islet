@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
+using Windows.Media;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
 
@@ -29,7 +30,11 @@ namespace MusicIsland
         MediaSource Source,
         string SourceName,
         string ProcessName,
-        double Rate = 1)
+        double Rate = 1,
+        bool? Shuffle = null,
+        MediaPlaybackAutoRepeatMode? Repeat = null,
+        bool CanShuffle = false,
+        bool CanRepeat = false)
     {
         /// <summary>Where playback is now; players only report it now and then.</summary>
         public TimeSpan PositionAt(DateTimeOffset now) =>
@@ -314,7 +319,12 @@ namespace MusicIsland
                 process,
 
                 // Web players can run at other speeds (YouTube's 1.5x, for example)
-                playback.PlaybackRate is > 0 and double rate ? rate : 1
+                playback.PlaybackRate is > 0 and double rate ? rate : 1,
+
+                playback.IsShuffleActive,
+                playback.AutoRepeatMode,
+                playback.Controls.IsShuffleEnabled,
+                playback.Controls.IsRepeatEnabled
             );
         }
 
@@ -401,6 +411,26 @@ namespace MusicIsland
             if (Session != null)
                 await Session.TryTogglePlayPauseAsync();
         }
+
+        public async Task SetShuffleAsync(bool on)
+        {
+            if (Session != null)
+                await Session.TryChangeShuffleActiveAsync(on);
+        }
+
+        public async Task SetRepeatAsync(MediaPlaybackAutoRepeatMode mode)
+        {
+            if (Session != null)
+                await Session.TryChangeAutoRepeatModeAsync(mode);
+        }
+
+        /// <summary>The button cycles off, repeat all, repeat one, like most players.</summary>
+        public static MediaPlaybackAutoRepeatMode RepeatAfter(MediaPlaybackAutoRepeatMode? mode) => mode switch
+        {
+            MediaPlaybackAutoRepeatMode.List => MediaPlaybackAutoRepeatMode.Track,
+            MediaPlaybackAutoRepeatMode.Track => MediaPlaybackAutoRepeatMode.None,
+            _ => MediaPlaybackAutoRepeatMode.List
+        };
 
         public async Task<bool> SeekAsync(TimeSpan position)
         {

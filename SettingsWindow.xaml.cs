@@ -115,6 +115,16 @@ namespace MusicIsland
 
             // ---------- Appearance ----------
             var appearance = Section("Appearance");
+            appearance.Children.Add(Label("Performance"));
+            appearance.Children.Add(Segmented(
+                new[] { "Low", "Medium", "High" },
+                (int)Settings.Performance,
+                i => { Settings.Performance = (PerformanceMode)i; Settings.Save(); }));
+            appearance.Children.Add(Note(
+                "Low turns off live lyrics, moving bars, spinning views and the song-change preview. " +
+                "Medium keeps them at a lighter frame rate. High adds the full lyric view and the " +
+                "smoothest animation, and uses the most CPU and memory. Moving to or from High fully applies after a restart."));
+
             appearance.Children.Add(Label("Theme"));
             appearance.Children.Add(Segmented(
                 new[] { "Midnight", "Graphite", "Album tint", "Translucent" },
@@ -326,6 +336,14 @@ namespace MusicIsland
 
             // ---------- Controls ----------
             var controls = Section("Controls");
+            controls.Children.Add(Switch("Show volume, brightness and device changes on the island",
+                Settings.ShowSystemStatus,
+                v => { Settings.ShowSystemStatus = v; Settings.Save(); }));
+
+            controls.Children.Add(Switch("Use the island instead of the Windows volume pop-up",
+                Settings.ReplaceVolumePopup,
+                v => { Settings.ReplaceVolumePopup = v; Settings.Save(); }));
+
             controls.Children.Add(Switch("Scroll over the island to change volume",
                 Settings.ScrollVolumeEnabled,
                 v => { Settings.ScrollVolumeEnabled = v; Settings.Save(); }));

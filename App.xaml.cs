@@ -17,6 +17,10 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+            // Only High needs the graphics card, and drawing without it saves about 60 MB
+            if (AppSettings.Current.Performance != PerformanceMode.High)
+                System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
+
         instanceMutex = new Mutex(true, InstanceName, out bool first);
 
         if (!first)

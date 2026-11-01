@@ -24,6 +24,7 @@ namespace MusicIsland
         readonly double[] im = new double[FftSize];
         readonly float[] levels = new float[BandCount];
         readonly double[] bandPeaks = new double[BandCount];
+        readonly double[] bandDb = new double[BandCount];
 
         readonly MMDeviceEnumerator enumerator = new();
 
@@ -34,6 +35,37 @@ namespace MusicIsland
         bool disposed;
 
         public bool IsRunning => capture != null;
+
+        /// <summary>Analyses at most this often; the audio still arrives in between.</summary>
+        public TimeSpan MinInterval { get; set; }
+
+        bool active;
+        bool registered;
+
+        /// <summary>Starts or stops capturing, away from the caller's thread.</summary>
+        public void SetActive(bool value)
+        {
+            if (active == value)
+                return;
+
+            active = value;
+
+            Task.Run(() =>
+            {
+                lock (captureLock)
+                {
+                    if (active)
+                    {
+                        if (capture == null && !Start())
+                            Log.Error("Audio loopback capture could not start");
+                    }
+                    else
+                    {
+                        StopCapture();
+                    }
+                }
+            });
+        }
 
         public DateTime LastSound { get; private set; } = DateTime.MinValue;
 
@@ -48,12 +80,17 @@ namespace MusicIsland
 
         public bool Start()
         {
-            try
+            if (!registered)
             {
-                enumerator.RegisterEndpointNotificationCallback(this);
-            }
-            catch
-            {
+                registered = true;
+
+                try
+                {
+                    enumerator.RegisterEndpointNotificationCallback(this);
+                }
+                catch
+                {
+                }
             }
 
             return StartCapture();
@@ -71,7 +108,7 @@ namespace MusicIsland
         {
             StopCapture();
 
-            if (disposed)
+            if (disposed || !active)
                 return false;
 
             try
@@ -161,7 +198,8 @@ namespace MusicIsland
                 ringPos = (ringPos + 1) % FftSize;
             }
 
-            Analyse(format.SampleRate);
+            if (DateTime.UtcNow - lastProcess >= MinInterval)
+                Analyse(format.SampleRate);
         }
 
         void Analyse(int sampleRate)
@@ -177,7 +215,6 @@ namespace MusicIsland
             var now = DateTime.UtcNow;
             double dt = Math.Clamp((now - lastProcess).TotalSeconds, 0, 0.25);
             double binHz = (double)sampleRate / FftSize;
-            var bandDb = new double[BandCount];
             double loudest = double.MinValue;
 
             for (int b = 0; b < BandCount; b++)

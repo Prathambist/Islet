@@ -21,6 +21,13 @@ namespace MusicIsland
         Circle
     }
 
+    public enum PerformanceMode
+    {
+        Low,
+        Medium,
+        High
+    }
+
     public enum MusicLook
     {
         Pill,
@@ -70,6 +77,7 @@ namespace MusicIsland
         public IslandTheme Theme { get; set; } = IslandTheme.Midnight;
         public IslandSize Size { get; set; } = IslandSize.Default;
         public MusicLook MusicLook { get; set; } = MusicLook.Pill;
+        public PerformanceMode Performance { get; set; } = PerformanceMode.Medium;
         public bool ShowLyrics { get; set; } = true;
         public bool FindVideoArt { get; set; } = true;
 
@@ -97,6 +105,8 @@ namespace MusicIsland
 
         // Interaction
         public bool ScrollVolumeEnabled { get; set; } = true;
+        public bool ShowSystemStatus { get; set; } = true;
+        public bool ReplaceVolumePopup { get; set; } = true;
         public ScrollTarget ScrollTarget { get; set; } = ScrollTarget.Spotify;
         public bool RealAudioVisualizer { get; set; } = true;
 
