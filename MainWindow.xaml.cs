@@ -175,6 +175,7 @@ namespace MusicIsland
 
             fullscreen = new FullscreenWatcher(() => new WindowInteropHelper(this).Handle);
             fullscreen.Changed += OnFullscreenChanged;
+            fullscreen.ForegroundChanged += KeepOnTop;
 
             systemStatus.VolumeChanged += (level, muted) => Dispatcher.BeginInvoke(() =>
             {
@@ -524,6 +525,9 @@ namespace MusicIsland
 
             bool wasExpanded = surface is Surface.ExpandedMusic or Surface.ExpandedAmbient;
             surface = next;
+
+            if (next != Surface.Hidden)
+                KeepOnTop();
             var profile = Profile;
             RefreshAllTimerFaces();
             double quick = profile.SpringResponse;
@@ -1617,9 +1621,32 @@ namespace MusicIsland
             await UpdateTrackAsync();
         }
 
+        // Windows sometimes moves an always-on-top window down among the normal ones
+        // (after Show desktop, an Explorer restart, or another app re-stacking windows)
+        // while it keeps the flag, so the island ends up behind apps. Put it back on top.
+        void KeepOnTop()
+        {
+            if (fullscreen.ProcessName != null && Settings.ShouldHideFor(fullscreen.ProcessName))
+                return;
+
+            var hwnd = new WindowInteropHelper(this).Handle;
+
+            if (hwnd != IntPtr.Zero)
+                SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        }
+
         const int GWL_EXSTYLE = -20;
         const long WS_EX_TOOLWINDOW = 0x00000080;
         const long WS_EX_NOACTIVATE = 0x08000000;
+        static readonly IntPtr HWND_TOPMOST = new(-1);
+        const uint SWP_NOSIZE = 0x0001;
+        const uint SWP_NOMOVE = 0x0002;
+        const uint SWP_NOACTIVATE = 0x0010;
+        const uint SWP_NOOWNERZORDER = 0x0200;
+
+        [DllImport("user32.dll")]
+        static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
 
         [DllImport("user32.dll")]
         static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);

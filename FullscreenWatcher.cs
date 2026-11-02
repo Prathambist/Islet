@@ -19,24 +19,51 @@ namespace MusicIsland
 
         readonly Func<IntPtr> ownWindow;
 
+        // Kept in a field so the garbage collector doesn't free it while Windows still calls it
+        readonly WinEventProc onForeground;
+        IntPtr foregroundHook;
+
         public string? ProcessName { get; private set; }
         public string? DisplayName { get; private set; }
 
         public event Action? Changed;
 
+        /// <summary>Another window came to the front.</summary>
+        public event Action? ForegroundChanged;
+
         public FullscreenWatcher(Func<IntPtr> ownWindow)
         {
             this.ownWindow = ownWindow;
             timer.Tick += (s, e) => Poll();
+            onForeground = (hook, type, hwnd, idObject, idChild, thread, time) =>
+            {
+                // React at once instead of on the next poll
+                Poll();
+                ForegroundChanged?.Invoke();
+            };
         }
 
         public void Start()
         {
             Poll();
             timer.Start();
+
+            // The polling stays for apps that go full-screen without changing the front window (F11)
+            if (foregroundHook == IntPtr.Zero)
+                foregroundHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+                    IntPtr.Zero, onForeground, 0, 0, WINEVENT_OUTOFCONTEXT);
         }
 
-        public void Stop() => timer.Stop();
+        public void Stop()
+        {
+            timer.Stop();
+
+            if (foregroundHook != IntPtr.Zero)
+            {
+                UnhookWinEvent(foregroundHook);
+                foregroundHook = IntPtr.Zero;
+            }
+        }
 
         void Poll()
         {
@@ -151,6 +178,18 @@ namespace MusicIsland
         const long WS_CAPTION = 0x00C00000;
         const int QUNS_RUNNING_D3D_FULL_SCREEN = 3;
         const int QUNS_PRESENTATION_MODE = 4;
+        const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+        const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+
+        delegate void WinEventProc(IntPtr hook, uint type, IntPtr hwnd,
+            int idObject, int idChild, uint thread, uint time);
+
+        [DllImport("user32.dll")]
+        static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr module,
+            WinEventProc callback, uint process, uint thread, uint flags);
+
+        [DllImport("user32.dll")]
+        static extern bool UnhookWinEvent(IntPtr hook);
 
         [StructLayout(LayoutKind.Sequential)]
         struct RECT

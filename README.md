@@ -80,7 +80,7 @@ Push a tag such as `v1.2.0`. The release workflow stamps that version into the a
 
 ## Building from Source
 
-Prerequisites: [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (Windows 10/11)
+Prerequisites: [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (Windows 10/11)
 
 ```powershell
 # Clone the repository
