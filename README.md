@@ -18,7 +18,7 @@ Open Windows PowerShell and run:
 irm https://raw.githubusercontent.com/Prathambist/MusicIsland/main/install.ps1 | iex
 ```
 
-> **Note:** The installer downloads the latest self-contained release, sets up shortcuts in your Start Menu and Windows Startup folder (launches on boot), and opens the app immediately. No .NET runtime installation required.
+> **Note:** The installer shows what it's about to do and asks before changing anything; press Enter or Y to go ahead. It downloads the latest self-contained release, sets up shortcuts in your Start Menu and Windows Startup folder (launches on boot), and opens the app immediately. No .NET runtime installation required.
 
 ---
 
