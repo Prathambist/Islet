@@ -23,13 +23,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The test project lives in a subfolder; keep its files out of the app -->
-    <Compile Remove="MusicIsland.Tests/**" />
-    <None Remove="MusicIsland.Tests/**" />
-    <Page Remove="MusicIsland.Tests/**" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Resource Include="Assets\MusicIsland.ico" />
   </ItemGroup>
 

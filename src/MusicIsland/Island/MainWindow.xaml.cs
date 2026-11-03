@@ -176,6 +176,7 @@ namespace MusicIsland
             fullscreen = new FullscreenWatcher(() => new WindowInteropHelper(this).Handle);
             fullscreen.Changed += OnFullscreenChanged;
             fullscreen.ForegroundChanged += KeepOnTop;
+            SetUpPrivacy();
 
             systemStatus.VolumeChanged += (level, muted) => Dispatcher.BeginInvoke(() =>
             {
@@ -287,6 +288,7 @@ namespace MusicIsland
                 clockTimer.Stop();
                 weatherTimer.Stop();
                 fullscreen.Stop();
+                privacy.Stop();
                 volumeKeys.Dispose();
                 systemStatus.Dispose();
                 notifications.Stop();
@@ -409,6 +411,7 @@ namespace MusicIsland
         {
             ApplyPerformance();
             SyncVisualizer(surface);
+            SyncPrivacy();
 
             if (Settings.NotifyDiscord || Settings.NotifyWhatsApp || Settings.NotifyMessenger || Settings.NotifyBrowsers)
             {
@@ -454,6 +457,7 @@ namespace MusicIsland
                 Settings.RememberApp(fullscreen.ProcessName, fullscreen.DisplayName ?? fullscreen.ProcessName);
 
             UpdateSurface();
+            ShowPrivacy();
         }
 
         // ================= State → shape =================
@@ -735,6 +739,8 @@ namespace MusicIsland
 
             if (surface == Surface.Hidden && islandOpacity.Value < 0.02)
                 IslandContainer.IsHitTestVisible = false;
+
+            PlacePrivacy();
         }
 
         static void ApplyPanel(Panel panel)

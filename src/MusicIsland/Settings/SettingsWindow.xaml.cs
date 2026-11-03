@@ -343,6 +343,10 @@ namespace MusicIsland
                 Settings.ShowSystemStatus,
                 v => { Settings.ShowSystemStatus = v; Settings.Save(); }));
 
+            controls.Children.Add(Switch("Show a dot beside the island while an app uses the mic or camera",
+                Settings.ShowPrivacyDots,
+                v => { Settings.ShowPrivacyDots = v; Settings.Save(); }));
+
             controls.Children.Add(Switch("Use the island instead of the Windows volume pop-up",
                 Settings.ReplaceVolumePopup,
                 v => { Settings.ReplaceVolumePopup = v; Settings.Save(); }));

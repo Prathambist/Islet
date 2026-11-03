@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\MusicIsland.csproj" />
+    <ProjectReference Include="..\..\src\MusicIsland\MusicIsland.csproj" />
   </ItemGroup>
 
   <ItemGroup>

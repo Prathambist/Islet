@@ -1,98 +1,65 @@
 # MusicIsland
 
-A sleek, fluid **Dynamic Island** music widget for Windows. It works with the Spotify and Apple Music apps and with web players such as Spotify Web, YouTube, YouTube Music and Apple Music on the web.
+A **Dynamic Island** for Windows. It sits at the top of your screen showing what's playing, and opens into a Now Playing card when you hover over it.
 
-It floats at the top-center of your screen as a pill-shaped capsule displaying animated equalizer waves and album art. Hovering over it fluidly morphs the island into an expanded Now Playing card with playback controls, marquee track scrolling, and dynamic color theming.
+Works with Spotify, Apple Music, and web players such as YouTube, YouTube Music and Spotify Web.
 
 <p align="center">
   <img src="docs/demo.gif" alt="MusicIsland playing a song, peeking at the next one, switching between its music views, showing a Discord notification, then cycling through its idle looks" width="630">
 </p>
 
----
+## Install
 
-## Quick Install (PowerShell)
-
-Open Windows PowerShell and run:
+In PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/Prathambist/MusicIsland/main/install.ps1 | iex
 ```
 
-> **Note:** The installer shows what it's about to do and asks before changing anything; press Enter or Y to go ahead. It downloads the latest self-contained release, sets up shortcuts in your Start Menu and Windows Startup folder (launches on boot), and opens the app immediately. No .NET runtime installation required.
+The installer asks before changing anything. It adds Start Menu and startup shortcuts and doesn't need .NET installed. It updates itself from then on.
 
----
-
-## Quick Uninstall
-
-To completely remove MusicIsland and all its shortcuts, run:
+To uninstall:
 
 ```powershell
 irm https://raw.githubusercontent.com/Prathambist/MusicIsland/main/uninstall.ps1 | iex
 ```
 
----
-
 ## Features
 
-- **Fluid, spring-driven morphing:** The island is a single pure-black shape whose size, corner radius and clip are animated by physical springs (the same response/damping model as iOS). Animations stay smooth and continuous even if you move in and out mid-animation.
-- **Works with your players:** The island follows the Spotify app, the Apple Music app, and any web player in Chrome, Edge, Firefox, Opera or Brave (Spotify Web, YouTube, YouTube Music, Apple Music on the web, ...). When several are playing, it stays on the one it's showing. When that one pauses, it switches to whichever is still playing. You can turn each source on or off in Settings.
-- **Real-time audio visualizer:** The bars follow the actual bass, mids and treble of whatever is playing, using WASAPI loopback capture and an FFT. You can switch to a lighter synthetic animation in Settings.
-- **Scroll to change volume:** Scroll over the island to change the playing app's own volume, or the system volume. For web players, the app's volume is the whole browser's. A small volume pill shows the level while you scroll.
-- **Like button:** A heart in the expanded card adds or removes the current song from your Liked Songs through the Spotify Web API. It works with the Spotify app and with Spotify Web. For other players, the heart is replaced by the source's name. Optional; see below.
-- **Full-screen auto-hide, per app:** The island hides when a game, video or slide show is full-screen. Apps are listed in Settings the first time they go full-screen, and each one can be set to *Default*, *Always hide* or *Always show*. You can also change the rule for the current full-screen app from the tray icon.
-- **Idle / ambient state:** When Spotify is closed or has been paused for a while, the island can shrink to a small camera notch or circle (showing the temperature once a weather location is set), hide completely, or show a clock (with optional weather from Open-Meteo). Hovering it then shows the time, date, weather and an *Open Spotify* button.
-- **Small views:** While music plays, the island can shrink to a notch-sized pill with the album art and bars, or to a small circle with the album art spinning (it winds down when you pause). When idle, it can be a small circle with a slowly turning ring. Choose them under *While music plays* and *Idle look* in Settings.
-- **Adaptive color theming:** The visualizer bars and the expanded card's glow take their color from the album artwork.
-- **Media controls and seeking:** Previous / Play-Pause / Next, and a live progress bar you can click or drag to jump within the song. Long song names scroll.
-- **Synced lyrics:** When you open the island, the line being sung appears under the song. Lyrics come from [LRCLIB](https://lrclib.net), and titles from YouTube-style uploads are cleaned up before the lookup.
-- **Real covers for music videos:** YouTube and other video sites only share a video frame, so MusicIsland finds the song's actual album or single cover in Apple's iTunes catalogue (free, no key). YouTube Music and Spotify Web already send the cover, so they're left as they are.
-- **Song-change peek:** When the next song starts, the island briefly widens to show the new title and cover, then settles back, like iOS.
-- **Volume, brightness and devices:** While MusicIsland is running, volume (blue) and brightness (yellow) changes appear on the island in a form that matches its current look: a ring in the circle views, a bar in the pills. Bluetooth devices connecting or disconnecting and audio output switches appear there too. These are display only, and you can turn them off in Settings. The volume keys replace the Windows pop-up; laptop brightness keys may still show the Windows one.
-- **Performance modes:** Choose under *Appearance* in Settings. *Low* turns off live lyrics, moving bars, spinning views and the song-change preview. *Medium* (the default) keeps them at a lighter frame rate, with a single lyric line. *High* adds a scrolling lyric view with lines that ripple into place and can be clicked to jump there, plus extra animation when songs change and the card opens.
-- **Countdown timer:** A dot-matrix timer with segmented ticks and one red accent, inspired by Nothing OS. Start one from the timer button on the expanded card or from the tray menu, then pause, resume, add time or cancel it there. It takes its own form in every view without getting in the way of the music, and appears as a small pill if the island would otherwise be hidden. When it ends, three white Glyph-style light strips on the island's edge flicker in time with a short electronic sound, even over full-screen apps, until you click or for 30 seconds. You can turn the sound off under *Controls* in Settings or from the tray menu. A timer keeps going if you quit or restart the app, and one that ended less than an hour before the next start still rings then. Low mode updates it once a second and switches the lights hard on and off; Medium and High let them fade like LEDs.
-- **Shuffle and repeat:** Buttons on the Now Playing card, for players that let other apps change them. They are dimmed for players that don't.
-- **Message notifications:** New Discord, WhatsApp and Messenger messages drop out of the island for a few seconds. Click one to open the chat. Each one shows the app's logo. This works with the desktop apps, with web apps installed from your browser (*Install app*), and with browser tabs that show the site's address in their notification. Notifications from other sites are an optional "browser notifications" switch. MusicIsland asks Windows for permission to read notifications the first time.
-- **Themes and sizes:** Midnight (pure black), Graphite, Album tint (coloured by the cover art) or Translucent, in Small, Default or Large.
-- **Auto-update:** MusicIsland checks GitHub Releases on launch and every 12 hours. When a new version is out, it shows in the island and the tray menu, and one click installs it and restarts the app.
-- **Stays out of the way:** The island doesn't take focus or show up in Alt+Tab, and clicks pass through everywhere outside the island.
+- **Now Playing:** play, pause, skip, seek, shuffle and repeat. Album art sets the colours.
+- **Live visualizer:** bars that move with the music.
+- **Synced lyrics:** from [LRCLIB](https://lrclib.net).
+- **Volume:** scroll over the island to change it.
+- **Volume and brightness:** changes show on the island.
+- **Message notifications:** from Discord, WhatsApp and Messenger.
+- **Mic and camera dots:** like iPhone's.
+- **Nothing-style countdown timer**
+- **Idle views:** a clock and the weather when nothing is playing.
+- **Like button:** saves songs to Spotify (optional).
+- **Hides over full-screen apps:** games and videos.
+- **Customisable:** themes, sizes and views.
+- **Performance modes:** Low, Medium and High.
 
-## Settings
+Everything is set in **Settings**. Right-click the island or use the tray icon.
 
-Open Settings from the gear in the expanded island, by right-clicking the island, from the tray icon, or by launching MusicIsland again (only one copy ever runs). Settings are saved to `%AppData%\MusicIsland\settings.json`.
+<details>
+<summary>Connecting Spotify for the Like button</summary>
 
-You can also turn **Launch at login** on or off there. If something misbehaves, **Open log folder** shows `log.txt`, which records errors (never message contents).
+1. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) with **Web API** (needs Premium).
+2. Add the redirect URI `http://127.0.0.1:5543/callback`.
+3. Paste its **Client ID** into Settings and press **Connect**.
 
-### Connecting Spotify (for the Like button)
+</details>
 
-1. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and choose **Web API** (requires spotify premium).
-2. Add the Redirect URI `http://127.0.0.1:5543/callback`.
-3. Paste the app's **Client ID** in MusicIsland's Settings and press **Connect**.
+## Building
 
-> Spotify requires Development Mode apps to be owned by a Premium account. The refresh token is encrypted with Windows DPAPI for your user account.
-
----
-
-## Releasing
-
-Push a tag such as `v1.2.0`. The release workflow stamps that version into the app, so installed copies see it as an update.
-
----
-
-## Building from Source
-
-Prerequisites: [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (Windows 10/11)
+Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
 
 ```powershell
-# Clone the repository
 git clone https://github.com/Prathambist/MusicIsland.git
 cd MusicIsland
-
-# Build and run in debug mode
-dotnet run
-
-# Run the tests (also run by the release workflow before publishing)
-dotnet test MusicIsland.Tests
-
-# Build a self-contained release package
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish
+dotnet run --project src/MusicIsland
+dotnet test
 ```
+
+To release, push a tag such as `v1.6.0`. GitHub Actions builds the release and installed copies update to it.
