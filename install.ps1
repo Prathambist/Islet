@@ -1,5 +1,5 @@
 param (
-    [string]$Repo = "Prathambist/MusicIsland",
+    [string]$Repo = "Prathambist/Islet",
     [switch]$NoStartup,
     [switch]$Yes
 )
@@ -8,12 +8,19 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 
-$InstallDir = "$env:LOCALAPPDATA\MusicIsland"
-$TempZip = "$env:TEMP\MusicIsland-win-x64.zip"
-$DownloadUrl = "https://github.com/$Repo/releases/latest/download/MusicIsland-win-x64.zip"
-$StartMenuPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MusicIsland.lnk"
-$StartupPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\MusicIsland.lnk"
-$ProcessName = "MusicIsland"
+$InstallDir = "$env:LOCALAPPDATA\Islet"
+$TempZip = "$env:TEMP\Islet-win-x64.zip"
+$DownloadUrl = "https://github.com/$Repo/releases/latest/download/Islet-win-x64.zip"
+$StartMenuPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Islet.lnk"
+$StartupPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\Islet.lnk"
+$ProcessName = "Islet"
+
+# Islet used to be called MusicIsland; an install under the old name is replaced, and its
+# settings come along the first time Islet starts
+$OldName = "MusicIsland"
+$OldInstallDir = "$env:LOCALAPPDATA\$OldName"
+$OldStartMenuPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$OldName.lnk"
+$OldStartupPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\$OldName.lnk"
 
 # ================= Look =================
 # Every symbol is built from its code point, so this file stays plain ASCII and reads
@@ -97,14 +104,14 @@ function Island([int]$Row, [int]$Inner, [object[]]$Content, [string]$Edge = 'Dar
 function Show-Intro {
     if (-not $Fancy) {
         Write-Host ""
-        Write-Host "  $Note  MusicIsland installer" -ForegroundColor Magenta
+        Write-Host "  $Note  Islet installer" -ForegroundColor Magenta
         Write-Host ""
         return
     }
 
     Write-Host ""
     $row = Reserve 4
-    $title = "  M U S I C  I S L A N D  "
+    $title = "  I S L E T  "
 
     # The island opens up from a little pill, like it does on screen
     foreach ($inner in 4, 8, 14, 22, 32, 40, 44, 42) {
@@ -258,14 +265,14 @@ function Show-Finale([string]$Version, [bool]$Updated) {
 
     if (-not $Fancy) {
         Write-Host ""
-        Write-Host "  $verb MusicIsland $Version" -ForegroundColor Green
+        Write-Host "  $verb Islet $Version" -ForegroundColor Green
         return
     }
 
     Write-Host ""
     $row = Reserve 5
     $inner = 46
-    $name = "MusicIsland $Version"
+    $name = "Islet $Version"
     $edge = 'DarkGray'
 
     function Card([double]$Fraction, [string]$Edge) {
@@ -319,14 +326,15 @@ function Confirm-Install([bool]$Updating, [bool]$Running, [double]$Size) {
     Write-Host "  This will:" -ForegroundColor Gray
     if ($Running) { Write-Host "    - close the island that's running now" -ForegroundColor DarkGray }
     Write-Host "    - download $amount from GitHub" -ForegroundColor DarkGray
+    if (Test-Path $OldInstallDir) { Write-Host "    - replace MusicIsland, Islet's old name, keeping your settings" -ForegroundColor DarkGray }
     if ($Updating) { Write-Host "    - replace the copy in $InstallDir" -ForegroundColor DarkGray }
     else { Write-Host "    - install it in $InstallDir" -ForegroundColor DarkGray }
     if ($NoStartup) { Write-Host "    - add it to the Start menu" -ForegroundColor DarkGray }
     else { Write-Host "    - add it to the Start menu and start it when you sign in" -ForegroundColor DarkGray }
     Write-Host ""
 
-    $question = "Install MusicIsland?"
-    if ($Updating) { $question = "Update MusicIsland?" }
+    $question = "Install Islet?"
+    if ($Updating) { $question = "Update Islet?" }
     Write-Host "  $question " -NoNewline -ForegroundColor White
     Write-Host "[Y/n] " -NoNewline -ForegroundColor DarkGray
 
@@ -358,14 +366,14 @@ function Confirm-Install([bool]$Updating, [bool]$Running, [double]$Size) {
 
 # ================= Install =================
 
-function Install-MusicIsland {
+function Install-Islet {
     Show-Intro
     $updated = Test-Path $InstallDir
 
     $size = 0
     try { $size = [double](Invoke-WebRequest -Uri $DownloadUrl -Method Head -UseBasicParsing -MaximumRedirection 10).Headers['Content-Length'] } catch { }
 
-    $isRunning = [bool](Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)
+    $isRunning = [bool](Get-Process -Name $ProcessName, $OldName -ErrorAction SilentlyContinue)
 
     if (-not (Confirm-Install $updated $isRunning $size)) {
         Write-Host ""
@@ -374,10 +382,10 @@ function Install-MusicIsland {
         return
     }
 
-    # 1. Stop a running copy so its files can be replaced
-    $running = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue
+    # 1. Stop a running copy (under either name) so its files can be replaced
+    $running = Get-Process -Name $ProcessName, $OldName -ErrorAction SilentlyContinue
     if ($running) {
-        [void](Invoke-Step "Asking the island to take a bow" { param($name) Stop-Process -Name $name -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800 } @($ProcessName))
+        [void](Invoke-Step "Asking the island to take a bow" { param($names) Stop-Process -Name $names -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800 } @(, @($ProcessName, $OldName)))
         Done "Stopped the running island"
     }
 
@@ -404,7 +412,7 @@ function Install-MusicIsland {
         }
         catch {
             Write-Host ""
-            Write-Host "  Couldn't download MusicIsland: $_" -ForegroundColor Red
+            Write-Host "  Couldn't download Islet: $_" -ForegroundColor Red
             Write-Host "  Check your connection and run the installer again." -ForegroundColor DarkGray
             return
         }
@@ -431,19 +439,22 @@ function Install-MusicIsland {
     }
     catch {
         Write-Host ""
-        Write-Host "  Couldn't unpack MusicIsland into $InstallDir`: $_" -ForegroundColor Red
-        Write-Host "  If MusicIsland is still open somewhere, close it and run the installer again." -ForegroundColor DarkGray
+        Write-Host "  Couldn't unpack Islet into $InstallDir`: $_" -ForegroundColor Red
+        Write-Host "  If Islet is still open somewhere, close it and run the installer again." -ForegroundColor DarkGray
         return
     }
     finally {
         Remove-Item -Path $TempZip -Force -ErrorAction SilentlyContinue
     }
 
-    $ExePath = Join-Path $InstallDir "MusicIsland.exe"
+    $ExePath = Join-Path $InstallDir "Islet.exe"
     if (-not (Test-Path $ExePath)) {
-        Write-Host "  MusicIsland.exe was not found in the extracted files." -ForegroundColor Red
+        Write-Host "  Islet.exe was not found in the extracted files." -ForegroundColor Red
         return
     }
+
+    # The release carries a stand-in MusicIsland.exe for old installs updating themselves; a fresh install doesn't need it
+    Remove-Item -Path (Join-Path $InstallDir "$OldName.exe") -Force -ErrorAction SilentlyContinue
 
     $Version = ""
     try { $Version = "v" + ((Get-Item $ExePath).VersionInfo.ProductVersion -split '\+')[0] } catch { }
@@ -457,14 +468,14 @@ function Install-MusicIsland {
         $link = $shell.CreateShortcut($startMenu)
         $link.TargetPath = $exe
         $link.WorkingDirectory = $folder
-        $link.Description = "iPhone-style Dynamic Island Spotify widget for Windows"
+        $link.Description = "A Dynamic Island for Windows: music, messages, a timer and a file shelf"
         $link.Save()
 
         if ($startup) {
             $link = $shell.CreateShortcut($startup)
             $link.TargetPath = $exe
             $link.WorkingDirectory = $folder
-            $link.Description = "MusicIsland Startup"
+            $link.Description = "Islet Startup"
             $link.Save()
         }
     }
@@ -473,9 +484,19 @@ function Install-MusicIsland {
     if ($NoStartup) { $startupLink = $null }
     [void](Invoke-Step "Pinning it to the Start menu" $shortcuts @($ExePath, $InstallDir, $StartMenuPath, $startupLink) -MinimumMs 700)
     Done "Added to the Start menu"
-    if (-not $NoStartup) { Done "Starts when you sign in" "turn it off in Settings > General" }
+    if (-not $NoStartup) { Done "Starts when you sign in" "turn it off in Settings > Advanced" }
 
-    # 5. Launch
+    # 5. The old name's leftovers: its folder and shortcuts
+    if ((Test-Path $OldInstallDir) -or (Test-Path $OldStartMenuPath) -or (Test-Path $OldStartupPath)) {
+        $cleanup = {
+            param($paths)
+            foreach ($path in $paths) { if (Test-Path $path) { Remove-Item -Path $path -Recurse -Force } }
+        }
+        [void](Invoke-Step "Tidying away MusicIsland" $cleanup @(, @($OldInstallDir, $OldStartMenuPath, $OldStartupPath)) -MinimumMs 500)
+        Done "Replaced MusicIsland" "your settings move over when Islet starts"
+    }
+
+    # 6. Launch
     [void](Invoke-Step "Warming up the amp" { param($exe) Start-Process -FilePath $exe } @($ExePath) -MinimumMs 900)
 
     Show-Finale $Version $updated
@@ -487,7 +508,7 @@ function Install-MusicIsland {
 
 try {
     if ($Fancy) { [Console]::CursorVisible = $false }
-    Install-MusicIsland
+    Install-Islet
 }
 finally {
     if ($Fancy) { [Console]::CursorVisible = $true }

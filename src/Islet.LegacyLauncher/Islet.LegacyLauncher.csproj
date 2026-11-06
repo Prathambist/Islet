@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Islet used to be called MusicIsland. Copies installed under that name update by
+    unpacking the newest release over their folder, checking it has MusicIsland.exe,
+    and starting it. This is that MusicIsland.exe: a small app for .NET Framework, which
+    every Windows already has, that starts Islet. Islet then moves itself to its
+    own folder (see LegacyMigration). The release workflow adds it to the zip.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>MusicIsland</AssemblyName>
+    <RootNamespace>Islet.LegacyLauncher</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <ApplicationIcon>..\Islet\Assets\Islet.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Lets the .NET SDK build for .NET Framework without it installed -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

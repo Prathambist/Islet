@@ -1,11 +1,13 @@
-# MusicIsland
+# Islet
 
 A **Dynamic Island** for Windows. It sits at the top of your screen showing what's playing, and opens into a Now Playing card when you hover over it.
 
 Works with Spotify, Apple Music, and web players such as YouTube, YouTube Music and Spotify Web.
 
+*Islet used to be called MusicIsland. Copies installed under the old name switch over by themselves when they update, settings included.*
+
 <p align="center">
-  <img src="docs/demo.gif" alt="MusicIsland playing a song, peeking at the next one, switching between its music views, showing a Discord notification, then cycling through its idle looks" width="630">
+  <img src="docs/demo.gif" alt="Islet playing a song, peeking at the next one, switching between its music views, showing a Discord notification, then cycling through its idle looks" width="630">
 </p>
 
 ## Install
@@ -13,7 +15,7 @@ Works with Spotify, Apple Music, and web players such as YouTube, YouTube Music 
 In PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/Prathambist/MusicIsland/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Prathambist/Islet/main/install.ps1 | iex
 ```
 
 The installer asks before changing anything. It adds Start Menu and startup shortcuts and doesn't need .NET installed. It updates itself from then on.
@@ -21,7 +23,7 @@ The installer asks before changing anything. It adds Start Menu and startup shor
 To uninstall:
 
 ```powershell
-irm https://raw.githubusercontent.com/Prathambist/MusicIsland/main/uninstall.ps1 | iex
+irm https://raw.githubusercontent.com/Prathambist/Islet/main/uninstall.ps1 | iex
 ```
 
 ## Features
@@ -58,9 +60,9 @@ Everything is set in **Settings**. Right-click the island or use the tray icon.
 Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
 
 ```powershell
-git clone https://github.com/Prathambist/MusicIsland.git
-cd MusicIsland
-dotnet run --project src/MusicIsland
+git clone https://github.com/Prathambist/Islet.git
+cd Islet
+dotnet run --project src/Islet
 dotnet test
 ```
 
