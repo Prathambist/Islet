@@ -38,6 +38,8 @@ irm https://raw.githubusercontent.com/Prathambist/MusicIsland/main/uninstall.ps1
 - **Like button:** saves songs to Spotify (optional).
 - **Hides over full-screen apps:** games and videos.
 - **Customisable:** themes, sizes and views.
+- **File shelf:** drop files on the island, then drag them out anywhere later.
+- **Movable:** hold the island for a second, then drag it anywhere along the top.
 - **Performance modes:** Low, Medium and High.
 
 Everything is set in **Settings**. Right-click the island or use the tray icon.

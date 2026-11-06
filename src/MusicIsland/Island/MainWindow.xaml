@@ -153,19 +153,28 @@
             have fixed sizes and are revealed by the shape instead of re-flowing.
         -->
         <Grid x:Name="IslandContainer"
-              HorizontalAlignment="Center"
+              HorizontalAlignment="Left"
               VerticalAlignment="Top"
-              Margin="0,10,0,0"
+              Margin="132,10,0,0"
               Width="236"
               Height="38"
               RenderTransformOrigin="0.5,0"
               MouseEnter="Island_MouseEnter"
               MouseLeave="Island_MouseLeave"
               MouseWheel="Island_MouseWheel"
-              PreviewMouseLeftButtonDown="Island_PreviewMouseLeftButtonDown">
+              PreviewMouseLeftButtonDown="Island_PreviewMouseLeftButtonDown"
+              AllowDrop="True"
+              DragEnter="Shelf_DragEnter"
+              DragOver="Shelf_DragOver"
+              DragLeave="Shelf_DragLeave"
+              Drop="Shelf_Drop">
 
             <Grid.RenderTransform>
-                <ScaleTransform x:Name="IslandScale"/>
+                <TransformGroup>
+                    <ScaleTransform x:Name="IslandScale"/>
+                    <!-- Leans the island into the way it's dragged -->
+                    <SkewTransform x:Name="IslandSkew"/>
+                </TransformGroup>
             </Grid.RenderTransform>
 
             <Grid.ContextMenu>
@@ -747,6 +756,100 @@
                     </StackPanel>
                 </Grid>
 
+                <!-- ===== Shelf: files parked on the island ===== -->
+                <Grid x:Name="ShelfPanel"
+                      Width="380"
+                      Height="136"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Top"
+                      Background="Transparent"
+                      RenderTransformOrigin="0.5,0">
+                    <Grid.RenderTransform>
+                        <ScaleTransform/>
+                    </Grid.RenderTransform>
+
+                    <Grid x:Name="ShelfContent"
+                          Margin="16,12,16,12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="24"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right"
+                                    Style="{StaticResource TimerChip}"
+                                    Height="24"
+                                    Content="Clear"
+                                    Click="ShelfClear_Click"/>
+                            <Border x:Name="ShelfDragAll"
+                                    DockPanel.Dock="Right"
+                                    Height="24"
+                                    CornerRadius="12"
+                                    Background="#1FFFFFFF"
+                                    Padding="10,0"
+                                    Margin="0,0,6,0"
+                                    Cursor="SizeAll"
+                                    ToolTip="Drag every file out at once"
+                                    MouseLeftButtonDown="ShelfDragAll_MouseDown"
+                                    MouseMove="ShelfDragAll_MouseMove">
+                                <TextBlock Text="Drag all"
+                                           Foreground="White"
+                                           FontSize="11.5"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Text="Shelf"
+                                       Foreground="White"
+                                       FontSize="13.5"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ShelfCount"
+                                       Style="{StaticResource Caption}"
+                                       Margin="7,1,0,0"
+                                       VerticalAlignment="Center"/>
+                        </DockPanel>
+
+                        <ScrollViewer x:Name="ShelfScroller"
+                                      Grid.Row="1"
+                                      Margin="0,10,0,0"
+                                      Focusable="False"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Disabled">
+                            <StackPanel x:Name="ShelfItems"
+                                        Orientation="Horizontal"/>
+                        </ScrollViewer>
+                    </Grid>
+
+                    <!-- While a file is dragged over: where to let go -->
+                    <Grid x:Name="ShelfDropHint"
+                          Margin="12"
+                          Opacity="0"
+                          Visibility="Collapsed"
+                          IsHitTestVisible="False">
+                        <Rectangle x:Name="ShelfDropOutline"
+                                   RadiusX="16"
+                                   RadiusY="16"
+                                   Fill="#C70C0C0E"
+                                   Stroke="#99FFFFFF"
+                                   StrokeThickness="1.5"
+                                   StrokeDashArray="4 3"/>
+                        <StackPanel HorizontalAlignment="Center"
+                                    VerticalAlignment="Center">
+                            <TextBlock Text="&#xE896;"
+                                       FontFamily="{StaticResource IconFont}"
+                                       FontSize="20"
+                                       Foreground="White"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Drop to keep it here"
+                                       Foreground="White"
+                                       FontSize="12.5"
+                                       FontWeight="SemiBold"
+                                       Margin="0,6,0,0"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+
                 <!-- ===== Expanded: music ===== -->
                 <Grid x:Name="ExpandedMusic"
                       Width="400"
@@ -757,6 +860,25 @@
                     <Grid.RenderTransform>
                         <ScaleTransform/>
                     </Grid.RenderTransform>
+
+                    <!-- When no lyrics show: the cover, blurred and darkened, behind the card -->
+                    <Grid x:Name="CoverBackdrop"
+                          Visibility="Collapsed"
+                          Opacity="0"
+                          IsHitTestVisible="False">
+                        <Image x:Name="CoverBackdropArt"
+                               Stretch="UniformToFill"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <Border>
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                    <GradientStop Color="#73000000" Offset="0"/>
+                                    <GradientStop Color="#A6000000" Offset="0.6"/>
+                                    <GradientStop Color="#CC000000" Offset="1"/>
+                                </LinearGradientBrush>
+                            </Border.Background>
+                        </Border>
+                    </Grid>
 
                     <Grid Margin="22,20,22,14">
                         <Grid.RowDefinitions>
@@ -1225,8 +1347,43 @@
         </Grid>
 
         <!--
+            Files waiting on the shelf: a small black badge beside the island with how
+            many. Clicking it, or dragging another file onto it, opens the shelf.
+        -->
+        <Border x:Name="ShelfPill"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top"
+                Height="22"
+                CornerRadius="11"
+                Background="Black"
+                Padding="7,0,8,0"
+                Cursor="Hand"
+                Visibility="Collapsed"
+                AllowDrop="True"
+                ToolTip="Files on the shelf"
+                MouseLeftButtonUp="ShelfPill_Click"
+                DragEnter="Shelf_DragEnter"
+                DragOver="Shelf_DragOver"
+                DragLeave="Shelf_DragLeave"
+                Drop="Shelf_Drop">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="&#xE8B7;"
+                           FontFamily="{StaticResource IconFont}"
+                           FontSize="11"
+                           Foreground="White"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="ShelfPillCount"
+                           Foreground="White"
+                           FontSize="11"
+                           FontWeight="SemiBold"
+                           Margin="5,0,0,1"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!--
             Mic / camera in use, like iPhone's privacy dots: a small black bubble just
-            right of the island (or in its place when the island is hidden). Hovering
+            beside the island (or in its place when the island is hidden). Hovering
             it says which apps underneath; clicking opens Windows' privacy settings.
         -->
         <Border x:Name="PrivacyPill"

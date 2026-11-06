@@ -147,7 +147,34 @@
         </Style>
     </Window.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel x:Name="Body" Margin="24,20,24,28"/>
-    </ScrollViewer>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Stays put while the page below scrolls -->
+        <StackPanel Margin="24,20,24,10">
+            <TextBlock Text="MusicIsland"
+                       FontSize="26"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,4"/>
+            <TextBlock Text="Changes apply instantly."
+                       FontSize="11.5"
+                       Foreground="#8CFFFFFF"
+                       Margin="0,0,0,14"/>
+            <Border x:Name="Tabs"
+                    Background="#242426"
+                    CornerRadius="9"
+                    Padding="1"/>
+        </StackPanel>
+
+        <ScrollViewer x:Name="Scroller"
+                      Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto">
+            <ContentControl x:Name="PageHost"
+                            Focusable="False"
+                            Margin="24,4,24,28"/>
+        </ScrollViewer>
+    </Grid>
 </Window>

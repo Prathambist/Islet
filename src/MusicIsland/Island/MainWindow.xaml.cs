@@ -32,7 +32,8 @@ namespace MusicIsland
             Notify,
             ExpandedMusic,
             ExpandedAmbient,
-            TimerPill
+            TimerPill,
+            Shelf
         }
 
         sealed class Panel
@@ -133,7 +134,10 @@ namespace MusicIsland
         double seekFraction;
 
         // Album accent, also used by the album-tint theme
-        Color accentColor = Color.FromRgb(190, 165, 255);
+        Color accentColor = AlbumPalette.Fallback;
+
+        // A second colour from the cover, for the album-tint theme
+        Color secondColor = AlbumPalette.Fallback;
 
         UpdateService.Release? availableUpdate;
         string? announcedUpdate;
@@ -147,7 +151,7 @@ namespace MusicIsland
         {
             InitializeComponent();
 
-            springs = new[] { width, height, islandOpacity, islandScale, volumeLevel, volumeRow, glow, heartScale, seekGrow, discSpeed, artPop, peekLift, openRows };
+            springs = new[] { width, height, islandOpacity, islandScale, volumeLevel, volumeRow, glow, heartScale, seekGrow, discSpeed, artPop, peekLift, openRows, dockX, grab, dragLift, dragPop, stretch, lean, backdropLevel, shelfScroll };
 
             compactMusicPanel = AddPanel(CompactMusic, 0.88);
             smallMusicPanel = AddPanel(SmallMusic, 0.88);
@@ -163,6 +167,7 @@ namespace MusicIsland
             expandedMusicPanel = AddPanel(ExpandedMusic, 0.9, 0.42);
             expandedAmbientPanel = AddPanel(ExpandedAmbient, 0.9, 0.42);
             timerPillPanel = AddPanel(TimerPill, 0.88);
+            shelfPanel = AddPanel(ShelfPanel, 0.9, 0.3);
 
             compactBars = CreateBars(CompactBars, 3, 1.5);
             smallBars = CreateBars(SmallBars, 2, 1);
@@ -177,6 +182,8 @@ namespace MusicIsland
             fullscreen.Changed += OnFullscreenChanged;
             fullscreen.ForegroundChanged += KeepOnTop;
             SetUpPrivacy();
+            SetUpDock();
+            SetUpShelf();
 
             systemStatus.VolumeChanged += (level, muted) => Dispatcher.BeginInvoke(() =>
             {
@@ -198,7 +205,7 @@ namespace MusicIsland
             {
                 hoverTimer.Stop();
 
-                if (IslandContainer.IsMouseOver && !volumeVisible && currentNotify == null && !TimerRinging)
+                if (IslandContainer.IsMouseOver && !dragging && !volumeVisible && currentNotify == null && !TimerRinging)
                 {
                     hovering = true;
                     UpdateSurface();
@@ -352,8 +359,8 @@ namespace MusicIsland
 
         async void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            Left = (SystemParameters.PrimaryScreenWidth - Width) / 2;
             Top = 0;
+            ApplyDock(snap: true);
 
             tray = new TrayIcon(fullscreen, countdown, OpenSettings, () => Close(),
                 () => availableUpdate, () => _ = InstallUpdateAsync());
@@ -412,6 +419,8 @@ namespace MusicIsland
             ApplyPerformance();
             SyncVisualizer(surface);
             SyncPrivacy();
+            SyncShelf();
+            ApplyDock();
 
             if (Settings.NotifyDiscord || Settings.NotifyWhatsApp || Settings.NotifyMessenger || Settings.NotifyBrowsers)
             {
@@ -458,6 +467,7 @@ namespace MusicIsland
 
             UpdateSurface();
             ShowPrivacy();
+            ShowShelfPill();
         }
 
         // ================= State → shape =================
@@ -478,6 +488,10 @@ namespace MusicIsland
             // You set the timer yourself, so unlike a message its alert does show over a full-screen app
             if (fullscreen.ProcessName != null && Settings.ShouldHideFor(fullscreen.ProcessName))
                 return TimerRinging ? Surface.TimerPill : Surface.Hidden;
+
+            // A file being dragged over, or the shelf opened, comes before everything else
+            if (ShelfWanted)
+                return Surface.Shelf;
 
             bool idle = IsIdle();
 
@@ -529,6 +543,7 @@ namespace MusicIsland
 
             bool wasExpanded = surface is Surface.ExpandedMusic or Surface.ExpandedAmbient;
             surface = next;
+            ShowShelfPill();
 
             if (next != Surface.Hidden)
                 KeepOnTop();
@@ -553,13 +568,14 @@ namespace MusicIsland
                 Surface.Peek => (340.0, 64.0, peekMusicPanel),
                 Surface.Notify => (370.0, 76.0, peekNotifyPanel),
                 Surface.TimerPill => (112.0, 30.0, timerPillPanel),
+                Surface.Shelf => (380.0, ShelfHeight, shelfPanel),
                 Surface.ExpandedMusic => (400.0, ExpandedMusic.Height, expandedMusicPanel),
                 Surface.ExpandedAmbient => (400.0, ExpandedAmbient.Height, expandedAmbientPanel),
                 _ => (236.0, 38.0, compactMusicPanel)
             };
 
             bool expanding = next is Surface.ExpandedMusic or Surface.ExpandedAmbient
-                or Surface.Peek or Surface.Notify;
+                or Surface.Peek or Surface.Notify or Surface.Shelf;
 
             // Opening gets a little overshoot, closing settles calmly, and small
             // compact-to-compact morphs (volume, notch) get a lively bounce.
@@ -659,6 +675,7 @@ namespace MusicIsland
 
             bool busy = false;
 
+            busy |= StepDrag(dt);
             busy |= UpdateBars(dt);
             busy |= UpdateProgress();
             busy |= StepStage(dt);
@@ -735,12 +752,13 @@ namespace MusicIsland
             IslandContent.Clip = clip;
 
             IslandContainer.Opacity = Math.Clamp(islandOpacity.Value, 0, 1);
-            IslandScale.ScaleX = IslandScale.ScaleY = islandScale.Value;
+            PlaceIsland(w);
 
             if (surface == Surface.Hidden && islandOpacity.Value < 0.02)
                 IslandContainer.IsHitTestVisible = false;
 
             PlacePrivacy();
+            ApplyShelf();
         }
 
         static void ApplyPanel(Panel panel)
@@ -916,6 +934,14 @@ namespace MusicIsland
 
         void Island_MouseWheel(object sender, MouseWheelEventArgs e)
         {
+            // On the shelf, the wheel looks through the files
+            if (surface == Surface.Shelf)
+            {
+                e.Handled = true;
+                ScrollShelf(e.Delta);
+                return;
+            }
+
             if (!Settings.ScrollVolumeEnabled)
                 return;
 
@@ -1032,61 +1058,13 @@ namespace MusicIsland
                 (byte)(color.G + (255 - color.G) * amount),
                 (byte)(color.B + (255 - color.B) * amount));
 
-        static Color GetAccentColor(BitmapSource? source)
-        {
-            var fallback = Color.FromRgb(190, 165, 255);
-
-            if (source == null)
-                return fallback;
-
-            try
-            {
-                var converted = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
-                int stride = converted.PixelWidth * 4;
-                byte[] pixels = new byte[stride * converted.PixelHeight];
-                converted.CopyPixels(pixels, stride, 0);
-
-                long red = 0, green = 0, blue = 0, weight = 0;
-                int stepX = Math.Max(1, converted.PixelWidth / 40);
-                int stepY = Math.Max(1, converted.PixelHeight / 40);
-
-                for (int y = 0; y < converted.PixelHeight; y += stepY)
-                {
-                    for (int x = 0; x < converted.PixelWidth; x += stepX)
-                    {
-                        int index = y * stride + x * 4;
-                        byte b = pixels[index], g = pixels[index + 1], r = pixels[index + 2];
-                        int max = Math.Max(r, Math.Max(g, b));
-                        int min = Math.Min(r, Math.Min(g, b));
-
-                        if (max < 35 || max - min < 18)
-                            continue;
-
-                        // Favour saturated pixels so the accent is vivid, not muddy
-                        int w = max - min;
-                        red += r * w;
-                        green += g * w;
-                        blue += b * w;
-                        weight += w;
-                    }
-                }
-
-                return weight == 0
-                    ? fallback
-                    : Color.FromRgb((byte)(red / weight), (byte)(green / weight), (byte)(blue / weight));
-            }
-            catch
-            {
-                return fallback;
-            }
-        }
-
         void ApplyAlbumTheme(BitmapSource? artwork)
         {
-            var accent = GetAccentColor(artwork);
+            var (accent, second) = AlbumPalette.From(artwork);
             var vivid = Brighten(accent, 0.35);
 
             accentColor = accent;
+            secondColor = second;
             ApplyOrbColor(vivid);
 
             if (Settings.Theme == IslandTheme.AlbumTint)
@@ -1339,6 +1317,7 @@ namespace MusicIsland
             PeekArt.Source = art;
             DiscArt.Fill = art == null ? null : new ImageBrush(art) { Stretch = Stretch.UniformToFill };
             ApplyAlbumTheme(art);
+            UpdateCoverBackdrop();
 
             if (surface == Surface.ExpandedMusic)
             {
@@ -1429,8 +1408,7 @@ namespace MusicIsland
             {
                 IslandTheme.Graphite => new SolidColorBrush(Color.FromRgb(28, 28, 30)),
                 IslandTheme.Translucent => new SolidColorBrush(Color.FromArgb(208, 20, 20, 22)),
-                IslandTheme.AlbumTint => new LinearGradientBrush(
-                    Darken(accentColor, 0.42), Darken(accentColor, 0.14), new Point(0, 0), new Point(0.4, 1)),
+                IslandTheme.AlbumTint => AlbumTintBrush(accentColor, secondColor),
                 _ => Brushes.Black
             };
 
@@ -1438,6 +1416,20 @@ namespace MusicIsland
                 background.Freeze();
 
             IslandShape.Background = background;
+        }
+
+        // Runs from the cover's main colour, beside the art, to its second colour by the bars;
+        // the same in every shape, since it scales with it. The two meet where both are
+        // darkest, so very different colours don't pass through a grey band.
+        static Brush AlbumTintBrush(Color primary, Color secondary)
+        {
+            var brush = new LinearGradientBrush { StartPoint = new Point(0, 0.5), EndPoint = new Point(1, 0.5) };
+
+            brush.GradientStops.Add(new GradientStop(AlbumPalette.Tone(primary, 0.26), 0));
+            brush.GradientStops.Add(new GradientStop(AlbumPalette.Tone(primary, 0.14), 0.45));
+            brush.GradientStops.Add(new GradientStop(AlbumPalette.Tone(secondary, 0.09), 0.68));
+            brush.GradientStops.Add(new GradientStop(AlbumPalette.Tone(secondary, 0.19), 1));
+            return brush;
         }
 
         // ================= Updates =================

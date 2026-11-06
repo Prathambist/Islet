@@ -76,6 +76,8 @@ namespace MusicIsland
         // Appearance
         public IslandTheme Theme { get; set; } = IslandTheme.Midnight;
         public IslandSize Size { get; set; } = IslandSize.Default;
+        // Where along the top it sits, as a share of the screen's width (0.5 is the middle)
+        public double IslandX { get; set; } = 0.5;
         public MusicLook MusicLook { get; set; } = MusicLook.Pill;
         public PerformanceMode Performance { get; set; } = PerformanceMode.Medium;
         public bool ShowLyrics { get; set; } = true;
@@ -111,6 +113,7 @@ namespace MusicIsland
         public bool RealAudioVisualizer { get; set; } = true;
         public bool TimerSound { get; set; } = true;
         public bool ShowPrivacyDots { get; set; } = true;
+        public bool ShelfEnabled { get; set; } = true;
 
         // Spotify Web API
         public string SpotifyClientId { get; set; } = "";

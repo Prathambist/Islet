@@ -68,6 +68,16 @@ namespace MusicIsland
 
             menu.Items.Add(BuildTimerMenu(menu));
             menu.Items.Add("Settings…", null, (s, e) => openSettings());
+
+            if (Math.Abs(Settings.IslandX - 0.5) > 0.001)
+            {
+                menu.Items.Add("Move the island back to the centre", null, (s, e) =>
+                {
+                    Settings.IslandX = 0.5;
+                    Settings.Save();
+                });
+            }
+
             menu.Items.Add(new Forms.ToolStripSeparator());
 
             var hideAll = new Forms.ToolStripMenuItem("Hide in full-screen apps")

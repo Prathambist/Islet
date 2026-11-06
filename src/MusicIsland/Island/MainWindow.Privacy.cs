@@ -45,23 +45,24 @@ namespace MusicIsland
             PlacePrivacy();
         }
 
-        // Follows the island every frame: just right of it, level with its top row,
-        // or where it would be when the island itself is hidden
+        // Follows the island every frame: just right of it (left of it on the right of
+        // the screen), level with its top row, or where it would be when it's hidden
         void PlacePrivacy()
         {
             if (PrivacyPill.Visibility != Visibility.Visible)
                 return;
 
-            double center = Width / 2;
-            double scale = islandScale.Value;
+            double w = Math.Max(1, width.Value);
+            double scale = islandScale.Value * dragPop.Value;
+            double visualLeft = islandLeft + islandOrigin * w * (1 - scale);
             bool islandShown = islandOpacity.Value > 0.5;
             double size = PrivacyPill.Height;
 
             double band = islandShown ? Math.Min(height.Value, 38) * scale : 30;
             double top = IslandContainer.Margin.Top + (band - size) / 2;
-            double left = islandShown
-                ? center + Math.Max(1, width.Value) * scale / 2 + PrivacyGap
-                : center - size / 2;
+            double left = !islandShown ? islandLeft + w / 2 - size / 2
+                : Left + islandLeft + w / 2 > ScreenWidth * 0.75 ? visualLeft - PrivacyGap - size
+                : visualLeft + w * scale + PrivacyGap;
 
             PrivacyPill.Margin = new Thickness(left, top, 0, 0);
 

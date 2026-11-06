@@ -75,6 +75,7 @@ namespace MusicIsland
 
             LyricRow.Visibility = style == LyricsStyle.Line ? Visibility.Visible : Visibility.Collapsed;
             LyricStage.Visibility = style == LyricsStyle.Stage ? Visibility.Visible : Visibility.Collapsed;
+            UpdateCoverBackdrop();
             ExpandedMusic.Height = (style switch
             {
                 LyricsStyle.Line => 204,
