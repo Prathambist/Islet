@@ -114,6 +114,10 @@ namespace Islet
         public bool TimerSound { get; set; } = true;
         public bool ShowPrivacyDots { get; set; } = true;
         public bool ShelfEnabled { get; set; } = true;
+        public bool ShowColorPalette { get; set; } = true;
+        public bool FollowDoNotDisturb { get; set; } = true;
+        public bool CatchScreenshots { get; set; } = true;
+        public bool FindFileLocks { get; set; } = true;
 
         // Spotify Web API
         public string SpotifyClientId { get; set; } = "";

@@ -33,7 +33,9 @@ namespace Islet
             ExpandedMusic,
             ExpandedAmbient,
             TimerPill,
-            Shelf
+            Shelf,
+            Palette,
+            Locks
         }
 
         sealed class Panel
@@ -168,6 +170,8 @@ namespace Islet
             expandedAmbientPanel = AddPanel(ExpandedAmbient, 0.9, 0.42);
             timerPillPanel = AddPanel(TimerPill, 0.88);
             shelfPanel = AddPanel(ShelfPanel, 0.9, 0.3);
+            palettePanel = AddPanel(PalettePanel, 0.9, 0.3);
+            locksPanel = AddPanel(LocksPanel, 0.9, 0.3);
 
             compactBars = CreateBars(CompactBars, 3, 1.5);
             smallBars = CreateBars(SmallBars, 2, 1);
@@ -184,6 +188,10 @@ namespace Islet
             SetUpPrivacy();
             SetUpDock();
             SetUpShelf();
+            SetUpColors();
+            SetUpQuiet();
+            SetUpScreenshots();
+            SetUpLocks();
 
             systemStatus.VolumeChanged += (level, muted) => Dispatcher.BeginInvoke(() =>
             {
@@ -363,7 +371,7 @@ namespace Islet
             ApplyDock(snap: true);
 
             tray = new TrayIcon(fullscreen, countdown, OpenSettings, () => Close(),
-                () => availableUpdate, () => _ = InstallUpdateAsync());
+                () => availableUpdate, () => _ = InstallUpdateAsync(), StartPicking);
 
             islandScale.Snap(SizeScale);
 
@@ -420,6 +428,9 @@ namespace Islet
             SyncVisualizer(surface);
             SyncPrivacy();
             SyncShelf();
+            SyncColors();
+            SyncDoNotDisturb();
+            SyncScreenshots();
             ApplyDock();
 
             if (Settings.NotifyDiscord || Settings.NotifyWhatsApp || Settings.NotifyMessenger || Settings.NotifyBrowsers)
@@ -474,6 +485,7 @@ namespace Islet
             UpdateSurface();
             ShowPrivacy();
             ShowShelfPill();
+            ShowColorPill();
         }
 
         // ================= State → shape =================
@@ -498,6 +510,12 @@ namespace Islet
             // A file being dragged over, or the shelf opened, comes before everything else
             if (ShelfWanted)
                 return Surface.Shelf;
+
+            if (LocksWanted)
+                return Surface.Locks;
+
+            if (PaletteWanted)
+                return Surface.Palette;
 
             bool idle = IsIdle();
 
@@ -550,6 +568,7 @@ namespace Islet
             bool wasExpanded = surface is Surface.ExpandedMusic or Surface.ExpandedAmbient;
             surface = next;
             ShowShelfPill();
+            ShowColorPill();
 
             if (next != Surface.Hidden)
                 KeepOnTop();
@@ -575,13 +594,15 @@ namespace Islet
                 Surface.Notify => (370.0, 76.0, peekNotifyPanel),
                 Surface.TimerPill => (112.0, 30.0, timerPillPanel),
                 Surface.Shelf => (380.0, ShelfHeight, shelfPanel),
+                Surface.Palette => (380.0, PaletteHeight, palettePanel),
+                Surface.Locks => (380.0, LocksHeight, locksPanel),
                 Surface.ExpandedMusic => (400.0, ExpandedMusic.Height, expandedMusicPanel),
                 Surface.ExpandedAmbient => (400.0, ExpandedAmbient.Height, expandedAmbientPanel),
                 _ => (236.0, 38.0, compactMusicPanel)
             };
 
             bool expanding = next is Surface.ExpandedMusic or Surface.ExpandedAmbient
-                or Surface.Peek or Surface.Notify or Surface.Shelf;
+                or Surface.Peek or Surface.Notify or Surface.Shelf or Surface.Palette or Surface.Locks;
 
             // Opening gets a little overshoot, closing settles calmly, and small
             // compact-to-compact morphs (volume, notch) get a lively bounce.
@@ -765,6 +786,7 @@ namespace Islet
 
             PlacePrivacy();
             ApplyShelf();
+            PlaceColorPill();
         }
 
         static void ApplyPanel(Panel panel)

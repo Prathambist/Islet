@@ -20,6 +20,9 @@ namespace Islet
     static class TimerInk
     {
         public static readonly Color Red = Color.FromRgb(0xFF, 0x2D, 0x2D);
+
+        /// <summary>A focus session's accent: calmer than the timer's red.</summary>
+        public static readonly Color Focus = Color.FromRgb(0xA3, 0x8F, 0xFF);
     }
 
     /// <summary>
@@ -31,6 +34,7 @@ namespace Islet
         static readonly Brush White = Frozen(Colors.White);
         static readonly Brush Dim = Frozen(Color.FromArgb(0x8C, 255, 255, 255));
         static readonly Brush Red = Frozen(TimerInk.Red);
+        static readonly Brush Violet = Frozen(TimerInk.Focus);
         static readonly Brush TickOff = Frozen(Color.FromArgb(0x38, 255, 255, 255));
 
         static Brush Frozen(Color color)
@@ -50,7 +54,7 @@ namespace Islet
         string clock = "", shortText = "";
         double fraction;
         double headGlow = 1;
-        bool paused, ringing;
+        bool paused, ringing, focus;
 
         public TimerFaceForm Form { get; set; }
         public int Ticks { get; set; } = 12;
@@ -61,11 +65,11 @@ namespace Islet
             Visibility = Visibility.Collapsed;
         }
 
-        public void Show(string clockText, string shortReading, double left, bool isPaused, bool isRinging, double head)
+        public void Show(string clockText, string shortReading, double left, bool isPaused, bool isRinging, double head, bool isFocus = false)
         {
             // A tick is the smallest step that can be seen, unless the head is breathing
             bool same = clock == clockText && shortText == shortReading && paused == isPaused && ringing == isRinging &&
-                        Math.Abs(fraction - left) * Ticks < 0.02 && Math.Abs(headGlow - head) < 0.03;
+                        focus == isFocus && Math.Abs(fraction - left) * Ticks < 0.02 && Math.Abs(headGlow - head) < 0.03;
 
             if (same)
                 return;
@@ -75,6 +79,7 @@ namespace Islet
             fraction = left;
             paused = isPaused;
             ringing = isRinging;
+            focus = isFocus;
             headGlow = head;
             InvalidateVisual();
         }
@@ -154,7 +159,7 @@ namespace Islet
             }
         }
 
-        // How many ticks are lit, and which is the red one
+        // How many ticks are lit, and which is the red (or, focusing, violet) one
         int LitTicks => ringing ? Ticks : (int)Math.Ceiling(Math.Clamp(fraction, 0, 1) * Ticks);
 
         Pen TickPen(int index, int lit, double thickness)
@@ -164,7 +169,10 @@ namespace Islet
             if (ringing)
                 brush = White;
             else if (index == lit - 1)
-                brush = headGlow >= 0.99 ? Red : Frozen(Color.FromArgb((byte)(255 * Math.Clamp(headGlow, 0, 1)), TimerInk.Red.R, TimerInk.Red.G, TimerInk.Red.B));
+            {
+                var accent = focus ? TimerInk.Focus : TimerInk.Red;
+                brush = headGlow >= 0.99 ? (focus ? Violet : Red) : Frozen(Color.FromArgb((byte)(255 * Math.Clamp(headGlow, 0, 1)), accent.R, accent.G, accent.B));
+            }
             else if (index < lit)
                 brush = paused ? Dim : White;
             else
@@ -302,7 +310,9 @@ namespace Islet
     {
         public const double SectionHeight = 44;
 
-        static readonly int[] PresetMinutes = { 1, 5, 10, 25 };
+        static readonly int[] PresetMinutes = { 1, 5, 10 };
+
+        public static readonly TimeSpan FocusLength = TimeSpan.FromMinutes(25);
 
         CountdownTimer? timer;
 
@@ -348,6 +358,12 @@ namespace Islet
                 preset.Click += (s, e) => timer?.Start(TimeSpan.FromMinutes(minutes));
                 setup.Children.Add(preset);
             }
+
+            // 25 minutes in which messages wait, then arrive together
+            var focusChip = Chip("Focus", "Focus for 25 minutes: messages wait until it's done");
+            focusChip.Margin = new Thickness(0, 0, 4, 0);
+            focusChip.Click += (s, e) => timer?.Start(FocusLength, focus: true);
+            setup.Children.Add(focusChip);
 
             // The island never takes keyboard focus, so a length is clicked or scrolled here
             var stepper = new StackPanel

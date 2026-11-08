@@ -44,7 +44,12 @@ namespace Islet
 
         bool ShelfOn => Settings.ShelfEnabled;
 
-        bool ShelfWanted => ShelfOn && (shelfDragOver || draggingOut || shelfOpen && shelf.Items.Count > 0);
+        // Dragging over shows the drop zones even with the shelf off, for "What's using it?"
+        bool ShelfWanted => shelfDragOver && (ShelfOn || LocksOn) || ShelfOn && (draggingOut || shelfOpen && shelf.Items.Count > 0);
+
+        // Which zone a drag over the island would land in, and which zones it offers
+        bool dropOnLocks;
+        bool lockZoneShown;
 
         double ShelfHeight => shelf.Items.Count > 0 ? 136 : 100;
 
@@ -82,7 +87,7 @@ namespace Islet
         // Called from ApplySettings
         void SyncShelf()
         {
-            IslandContainer.AllowDrop = ShelfOn;
+            IslandContainer.AllowDrop = ShelfOn || LocksOn;
 
             if (!ShelfOn)
             {
@@ -140,10 +145,44 @@ namespace Islet
         // ================= Dragging files in =================
 
         bool CanTake(DragEventArgs e) =>
-            ShelfOn && !draggingOut &&
-            (e.Data.GetDataPresent(DataFormats.FileDrop) ||
-             e.Data.GetDataPresent(DataFormats.Bitmap) ||
-             e.Data.GetDataPresent(DataFormats.UnicodeText));
+            !draggingOut && !notifyDragging &&
+            (ShelfOn && (e.Data.GetDataPresent(DataFormats.FileDrop) ||
+                         e.Data.GetDataPresent(DataFormats.Bitmap) ||
+                         e.Data.GetDataPresent(DataFormats.UnicodeText)) ||
+             LocksOn && e.Data.GetDataPresent(DataFormats.FileDrop));
+
+        // Only files can be checked; only the shelf takes images and text
+        void ChooseZones(DragEventArgs e)
+        {
+            bool files = e.Data.GetDataPresent(DataFormats.FileDrop);
+            bool both = ShelfOn && LocksOn && files;
+            bool locksOnly = !ShelfOn && LocksOn && files;
+
+            lockZoneShown = both || locksOnly;
+            ShelfZone.Visibility = locksOnly ? Visibility.Collapsed : Visibility.Visible;
+            LockZone.Visibility = lockZoneShown ? Visibility.Visible : Visibility.Collapsed;
+            Grid.SetColumnSpan(ShelfZone, both ? 1 : 3);
+            Grid.SetColumn(LockZone, both ? 2 : 0);
+            Grid.SetColumnSpan(LockZone, both ? 1 : 3);
+
+            // The half the pointer is over lights up
+            bool onLocks = locksOnly || both && e.GetPosition(ShelfDropHint).X > ShelfDropHint.ActualWidth / 2;
+
+            if (onLocks != dropOnLocks || !shelfDragOver)
+            {
+                dropOnLocks = onLocks;
+                LightZone(ShelfZoneOutline, !onLocks);
+                LightZone(LockZoneOutline, onLocks);
+            }
+        }
+
+        static void LightZone(System.Windows.Shapes.Rectangle outline, bool lit)
+        {
+            outline.Stroke = new SolidColorBrush(lit ? Colors.White : Color.FromArgb(0x55, 255, 255, 255));
+            outline.BeginAnimation(OpacityProperty, lit
+                ? new DoubleAnimation(0.6, 1, TimeSpan.FromMilliseconds(700)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever }
+                : new DoubleAnimation(0.7, TimeSpan.FromMilliseconds(150)));
+        }
 
         void Shelf_DragEnter(object sender, DragEventArgs e)
         {
@@ -154,6 +193,7 @@ namespace Islet
                 return;
 
             dragLeaveTimer.Stop();
+            ChooseZones(e);
             SetDragOver(true);
         }
 
@@ -163,7 +203,10 @@ namespace Islet
             e.Effects = CanTake(e) ? DragDropEffects.Copy : DragDropEffects.None;
 
             if (e.Effects != DragDropEffects.None)
+            {
                 dragLeaveTimer.Stop();
+                ChooseZones(e);
+            }
         }
 
         void Shelf_DragLeave(object sender, DragEventArgs e)
@@ -179,6 +222,21 @@ namespace Islet
             dragLeaveTimer.Stop();
 
             if (!CanTake(e))
+            {
+                SetDragOver(false);
+                return;
+            }
+
+            ChooseZones(e);
+
+            if (dropOnLocks && e.Data.GetData(DataFormats.FileDrop) is string[] dropped)
+            {
+                SetDragOver(false);
+                ShowLocks(dropped);
+                return;
+            }
+
+            if (!ShelfOn)
             {
                 SetDragOver(false);
                 return;
@@ -229,10 +287,11 @@ namespace Islet
             ShelfDropHint.BeginAnimation(OpacityProperty, fade);
             ShelfContent.BeginAnimation(OpacityProperty, new DoubleAnimation(show ? 0.18 : 1, TimeSpan.FromMilliseconds(180)));
 
-            // The outline breathes while it waits
-            ShelfDropOutline.BeginAnimation(OpacityProperty, show
-                ? new DoubleAnimation(0.55, 1, TimeSpan.FromMilliseconds(700)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever }
-                : null);
+            if (!show)
+            {
+                ShelfZoneOutline.BeginAnimation(OpacityProperty, null);
+                LockZoneOutline.BeginAnimation(OpacityProperty, null);
+            }
         }
 
         // Files are kept where they are; an image or text from a page becomes a file first
@@ -443,6 +502,13 @@ namespace Islet
 
             Add("Open", () => OpenPath(path));
             Add("Show in folder", () => Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true }));
+
+            if (LocksOn)
+                Add("What's using it?", () =>
+                {
+                    CloseShelf();
+                    ShowLocks(new[] { path });
+                });
             menu.Items.Add(new Separator());
             Add("Remove from the shelf", () => shelf.Remove(path));
 

@@ -347,6 +347,12 @@ namespace Islet
             notify.Children.Add(Switch("Show message text", Settings.NotifyShowMessage,
                 v => { Settings.NotifyShowMessage = v; Settings.Save(); }));
 
+            notify.Children.Add(Switch("Hold messages while Windows' Do Not Disturb is on", Settings.FollowDoNotDisturb,
+                v => { Settings.FollowDoNotDisturb = v; Settings.Save(); }));
+            notify.Children.Add(Note(
+                "Like a focus session: messages wait quietly, then arrive as one summary when you turn " +
+                "Do Not Disturb off. Click the summary to see them."));
+
             var accessRow = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
             var accessButton = PillButton("Allow access", async () =>
             {
@@ -429,6 +435,11 @@ namespace Islet
             var shelfSection = Section("File shelf");
             shelfSection.Children.Add(Switch("Keep files dropped on the island", Settings.ShelfEnabled,
                 v => { Settings.ShelfEnabled = v; Settings.Save(); }));
+            shelfSection.Children.Add(Switch("Put new screenshots on the shelf", Settings.CatchScreenshots,
+                v => { Settings.CatchScreenshots = v; Settings.Save(); }));
+            shelfSection.Children.Add(Note(
+                "Screenshots from Win+Shift+S drop out of the island; drag one straight into a chat. This " +
+                "needs the Snipping Tool to save screenshots automatically, which it does unless turned off."));
             shelfSection.Children.Add(Note(
                 "Drag files onto the island to park them, then drag them out into any app or folder. " +
                 "The shelf remembers where your files are rather than copying them, so they stay " +
@@ -443,6 +454,25 @@ namespace Islet
             shelfFolder.HorizontalAlignment = HorizontalAlignment.Left;
             shelfFolder.Margin = new Thickness(0, 10, 0, 0);
             shelfSection.Children.Add(shelfFolder);
+
+            var locksSection = Section("Files in use");
+            locksSection.Children.Add(Switch("Find out what has a file open", Settings.FindFileLocks,
+                v => { Settings.FindFileLocks = v; Settings.Save(); }));
+            locksSection.Children.Add(Note(
+                "When Windows won't delete or change a file because it's open somewhere, drag it onto the " +
+                "island and let go on \"What's using it?\". The island names the app and can close it."));
+
+            var colorSection = Section("Colour picker");
+            colorSection.Children.Add(Switch("Keep picked colours beside the island", Settings.ShowColorPalette,
+                v => { Settings.ShowColorPalette = v; Settings.Save(); }));
+            colorSection.Children.Add(Note(
+                "Right-click the island, or use the tray icon, and choose Pick a colour. The colour's " +
+                "hex code is copied, and your last 12 colours wait in a small badge right of the island."));
+
+            var pickButton = PillButton("Pick a colour", () => island.StartPicking());
+            pickButton.HorizontalAlignment = HorizontalAlignment.Left;
+            pickButton.Margin = new Thickness(0, 10, 0, 0);
+            colorSection.Children.Add(pickButton);
 
             var fullscreen = Section("Full-screen apps");
             fullscreen.Children.Add(Switch(

@@ -36,10 +36,14 @@ irm https://raw.githubusercontent.com/Prathambist/Islet/main/uninstall.ps1 | iex
 - **Message notifications:** from Discord, WhatsApp and Messenger.
 - **Mic and camera dots:** like iPhone's.
 - **Nothing-style countdown timer**
+- **Focus sessions:** 25 minutes in which messages wait, then arrive as one summary. Windows' Do Not Disturb holds them the same way.
+- **Screenshot catcher:** new screenshots drop out of the island onto the shelf, ready to drag into a chat.
 - **Idle views:** a clock and the weather when nothing is playing.
 - **Like button:** saves songs to Spotify (optional).
 - **Hides over full-screen apps:** games and videos.
 - **Customisable:** themes, sizes and views.
+- **Colour picker:** pick any colour on screen; its hex code is copied and your last 12 wait beside the island.
+- **Files in use:** drag a file Windows won't delete onto the island to see which app has it open, and close it.
 - **File shelf:** drop files on the island, then drag them out anywhere later.
 - **Movable:** hold the island for a second, then drag it anywhere along the top.
 - **Performance modes:** Low, Medium and High.

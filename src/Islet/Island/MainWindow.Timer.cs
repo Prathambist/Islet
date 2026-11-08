@@ -50,6 +50,7 @@ namespace Islet
         void OnCountdownChanged()
         {
             CountdownStore.Save(CountdownStore.DefaultPath, countdown.Snapshot);
+            SyncFocus();
 
             bool active = TimerActive;
             var shown = active ? Visibility.Visible : Visibility.Collapsed;
@@ -137,7 +138,7 @@ namespace Islet
             {
                 // Faces in hidden views catch up the next second, or when they come back
                 if (face.IsVisible)
-                    face.Show(clock, reading, fraction, paused, TimerRinging, headGlow);
+                    face.Show(clock, reading, fraction, paused, TimerRinging, headGlow, countdown.Focus);
             }
         }
 
@@ -151,7 +152,7 @@ namespace Islet
 
             foreach (var face in timerFaces)
                 face.Show(TimerText.Clock(remaining), TimerText.Short(remaining), countdown.Fraction,
-                    countdown.State == CountdownState.Paused, TimerRinging, 1);
+                    countdown.State == CountdownState.Paused, TimerRinging, 1, countdown.Focus);
         }
 
         // Medium and High: the red tick breathes and the ticks move between seconds

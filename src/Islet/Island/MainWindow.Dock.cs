@@ -228,7 +228,7 @@ namespace Islet
         void Dock_PressDown(object sender, MouseButtonEventArgs e)
         {
             // An alert being dismissed, a click on a hidden island, or a file on the shelf
-            if (e.Handled || surface is Surface.Hidden or Surface.Shelf)
+            if (e.Handled || surface is Surface.Hidden or Surface.Shelf or Surface.Palette or Surface.Locks)
                 return;
 
             pressing = true;

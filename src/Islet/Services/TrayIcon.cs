@@ -16,13 +16,15 @@ namespace Islet
         readonly Action quit;
         readonly Func<UpdateService.Release?> update;
         readonly Action installUpdate;
+        readonly Action pickColor;
         readonly Icon image;
 
         static AppSettings Settings => AppSettings.Current;
 
         public TrayIcon(FullscreenWatcher fullscreen, CountdownTimer countdown, Action openSettings, Action quit,
-            Func<UpdateService.Release?> update, Action installUpdate)
+            Func<UpdateService.Release?> update, Action installUpdate, Action pickColor)
         {
+            this.pickColor = pickColor;
             this.fullscreen = fullscreen;
             this.countdown = countdown;
             this.openSettings = openSettings;
@@ -67,6 +69,7 @@ namespace Islet
             }
 
             menu.Items.Add(BuildTimerMenu(menu));
+            menu.Items.Add("Pick a colour…", null, (s, e) => pickColor());
             menu.Items.Add("Settings…", null, (s, e) => openSettings());
 
             if (Math.Abs(Settings.IslandX - 0.5) > 0.001)
@@ -138,6 +141,9 @@ namespace Islet
             switch (countdown.State)
             {
                 case CountdownState.Idle:
+                    Add("Focus for 25 min (messages wait)", () => countdown.Start(TimerCard.FocusLength, focus: true));
+                    timer.DropDownItems.Add(new Forms.ToolStripSeparator());
+
                     foreach (int minutes in new[] { 1, 3, 5, 10, 15, 25, 30, 45, 60 })
                         Add($"{minutes} min", () => countdown.Start(TimeSpan.FromMinutes(minutes)));
 

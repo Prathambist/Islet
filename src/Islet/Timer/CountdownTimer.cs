@@ -14,7 +14,7 @@ namespace Islet
     }
 
     /// <summary>What it takes to carry a timer over a restart. Only one still counting is ever saved.</summary>
-    public sealed record SavedCountdown(CountdownState State, DateTimeOffset EndsAt, TimeSpan Remaining, TimeSpan Total);
+    public sealed record SavedCountdown(CountdownState State, DateTimeOffset EndsAt, TimeSpan Remaining, TimeSpan Total, bool Focus = false);
 
     /// <summary>
     /// Counts down to an absolute end time, so a late tick, a busy UI thread or the PC
@@ -42,6 +42,9 @@ namespace Islet
 
         /// <summary>The full length, including time added since it started.</summary>
         public TimeSpan Total { get; private set; }
+
+        /// <summary>A focus session: messages wait until it's over. Cleared once it's idle again.</summary>
+        public bool Focus { get; private set; }
 
         public event Action? Changed;
 
@@ -71,7 +74,7 @@ namespace Islet
 
         /// <summary>What to save right now, or null when nothing is counting.</summary>
         public SavedCountdown? Snapshot => State is CountdownState.Running or CountdownState.Paused
-            ? new SavedCountdown(State, endsAt, Remaining, Total)
+            ? new SavedCountdown(State, endsAt, Remaining, Total, Focus)
             : null;
 
         /// <summary>Picks up a saved timer, ignoring one that makes no sense or ended too long ago.</summary>
@@ -89,6 +92,7 @@ namespace Islet
 
                 Total = Max(saved.Total, saved.Remaining);
                 pausedRemaining = saved.Remaining;
+                Focus = saved.Focus;
                 Set(CountdownState.Paused);
             }
             else if (saved.State == CountdownState.Running)
@@ -99,15 +103,17 @@ namespace Islet
                 Total = saved.Total;
                 endsAt = saved.EndsAt;
                 ringingSince = now;
+                Focus = saved.Focus;
                 Set(now >= endsAt ? CountdownState.Ringing : CountdownState.Running);
             }
         }
 
-        public void Start(TimeSpan duration)
+        public void Start(TimeSpan duration, bool focus = false)
         {
             if (duration <= TimeSpan.Zero)
                 return;
 
+            Focus = focus;
             Total = Min(duration, Longest);
             endsAt = clock() + Total;
             Set(CountdownState.Running);
@@ -153,7 +159,7 @@ namespace Islet
                     break;
 
                 case CountdownState.Ringing:
-                    Start(amount);
+                    Start(amount, Focus);
                     break;
             }
         }
@@ -184,6 +190,9 @@ namespace Islet
 
         void Set(CountdownState state)
         {
+            if (state == CountdownState.Idle)
+                Focus = false;
+
             State = state;
             Changed?.Invoke();
         }

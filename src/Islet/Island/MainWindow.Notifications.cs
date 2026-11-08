@@ -16,7 +16,8 @@ namespace Islet
             Color Badge,
             int Glyph,
             Action OnClick,
-            Geometry? Logo = null);
+            Geometry? Logo = null,
+            string? DragPath = null);
 
         NotifyItem? currentNotify;
         readonly Queue<NotifyItem> notifyQueue = new();
@@ -25,6 +26,10 @@ namespace Islet
 
         void EnqueueChat(ChatNotification n)
         {
+            // During a focus session it waits, to arrive with the rest at the end
+            if (HoldForFocus(n))
+                return;
+
             var (badge, url, logo) = n.App switch
             {
                 ChatApp.Discord => (Color.FromRgb(88, 101, 242),
@@ -110,6 +115,14 @@ namespace Islet
                 return;
 
             e.Handled = true;
+
+            // Letting go after dragging a screenshot out isn't a click
+            if (notifyDragged)
+            {
+                notifyDragged = false;
+                return;
+            }
+
             notifyTimer.Stop();
             ShowNextNotification();
             item.OnClick();
