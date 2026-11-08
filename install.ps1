@@ -17,6 +17,10 @@ $ProcessName = "Islet"
 
 # Islet used to be called MusicIsland; an install under the old name is replaced, and its
 # settings come along the first time Islet starts
+# Releases are signed; anything without a valid signature from this key is refused.
+# Islet's updater carries the same key (src/Islet/Services/ReleaseSignature.cs).
+$ReleaseKey = "<RSAKeyValue><Modulus>pNGdcQG3b4/+tGyz8nOOuKAg5bt235ti/0gbMawJifyY9cAMgk66W4/OnbUbXT9wc/2Gj7i+l9L1stssQHLdjWrfTC+H9luGw8QBkjTUkbbbs4WwixZi3Uihdi4F9RYk3I4pexhGh4m7drgZgP6COcrnPca66cc4HPbGigoNKCUHl7cdoDg+cy0oZyWV1ikJeBI1fqmA13de0rxS2kp8EkQw7SM/LSuJE1qXVy9M0aO5z3quChpasZurkoDM/tPThDJlZtQAVtXuUP4uqXMOu4kJa9KAdxvcNu1B+hEpuSYLDYN3/7d8pKA3Ux/hsIwP9y0CqHMOGpahGoehvvJqPEGgJm9NjqqvWi8d21j0ARqnUhQ+53OAgqxOdmrXmCCel7u5/Hf90vSAVDSGzhovoKnZRlcbHkHZVs6Nb6ql1CyU2Rux9ZOWHvi1lmE+zGJPr8dm9T1NzECIe7pp2lCOeePwWglghT0pwl1qZvd7HAf6eDA6x02DsRqmHxLyAuhJ</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>"
+
 $OldName = "MusicIsland"
 $OldInstallDir = "$env:LOCALAPPDATA\$OldName"
 $OldStartMenuPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$OldName.lnk"
@@ -419,6 +423,29 @@ function Install-Islet {
     }
 
     Done "Downloaded" ("{0:0.0} MB" -f ((Get-Item $TempZip).Length / 1MB))
+
+    # 2b. Check it was signed with Islet's release key before unpacking anything
+    try {
+        $signature = (Invoke-WebRequest -Uri "$DownloadUrl.sig" -UseBasicParsing -MaximumRedirection 10).Content
+        if ($signature -is [byte[]]) { $signature = [Text.Encoding]::ASCII.GetString($signature) }
+
+        $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider
+        $rsa.FromXmlString($ReleaseKey)
+        $valid = $rsa.VerifyData([IO.File]::ReadAllBytes($TempZip), "SHA256", [Convert]::FromBase64String($signature.Trim()))
+    }
+    catch {
+        $valid = $false
+    }
+
+    if (-not $valid) {
+        Remove-Item -Path $TempZip -Force -ErrorAction SilentlyContinue
+        Write-Host ""
+        Write-Host "  This download isn't signed with Islet's release key, so it wasn't installed." -ForegroundColor Red
+        Write-Host "  Try again later; if it keeps happening, please open an issue on GitHub." -ForegroundColor DarkGray
+        return
+    }
+
+    Done "Signature checked" "signed by Islet's release key"
 
     # 3. Unpack into LocalAppData
     Add-Type -AssemblyName System.IO.Compression.FileSystem

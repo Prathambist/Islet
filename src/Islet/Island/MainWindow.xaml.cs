@@ -15,29 +15,6 @@ namespace Islet
 {
     public partial class MainWindow : Window
     {
-        // Every shape the island can morph between
-        enum Surface
-        {
-            Hidden,
-            Notch,
-            CompactMusic,
-            SmallMusic,
-            StatusSmall,
-            StatusRing,
-            MiniMusic,
-            MiniIdle,
-            CompactAmbient,
-            Volume,
-            Peek,
-            Notify,
-            ExpandedMusic,
-            ExpandedAmbient,
-            TimerPill,
-            Shelf,
-            Palette,
-            Locks
-        }
-
         sealed class Panel
         {
             public required FrameworkElement Element;
@@ -490,67 +467,29 @@ namespace Islet
 
         // ================= State → shape =================
 
-        bool IsIdle()
-        {
-            if (track == null)
-                return true;
-
-            if (playing || pausedSince == null || Settings.IdleDelaySeconds <= 0)
-                return false;
-
-            return (DateTime.Now - pausedSince.Value).TotalSeconds >= Settings.IdleDelaySeconds;
-        }
+        bool IsIdle() => IslandState.IsIdle(track != null, playing, pausedSince, Settings.IdleDelaySeconds, DateTime.Now);
 
         Surface ChooseSurface()
         {
-            // You set the timer yourself, so unlike a message its alert does show over a full-screen app
-            if (fullscreen.ProcessName != null && Settings.ShouldHideFor(fullscreen.ProcessName))
-                return TimerRinging ? Surface.TimerPill : Surface.Hidden;
-
-            // A file being dragged over, or the shelf opened, comes before everything else
-            if (ShelfWanted)
-                return Surface.Shelf;
-
-            if (LocksWanted)
-                return Surface.Locks;
-
-            if (PaletteWanted)
-                return Surface.Palette;
-
             bool idle = IsIdle();
 
-            if (hovering)
-                return track != null ? Surface.ExpandedMusic : Surface.ExpandedAmbient;
-
-            if (volumeVisible)
+            return IslandState.Choose(new IslandInputs
             {
-                return SystemStatus.LayoutFor(idle, Settings.IdleMode, Settings.MusicLook) switch
-                {
-                    StatusLayout.Ring => Surface.StatusRing,
-                    StatusLayout.Small => Surface.StatusSmall,
-                    _ => Surface.Volume
-                };
-            }
-
-            // Messages show up even when the idle island is hidden
-            if (currentNotify != null)
-                return Surface.Notify;
-
-            if (idle && Settings.IdleMode == IdleMode.Hide)
-                return TimerActive ? Surface.TimerPill : Surface.Hidden;
-
-            if (!idle)
-                return peekVisible ? Surface.Peek
-                    : Settings.MusicLook == MusicLook.Disc ? Surface.MiniMusic
-                    : Settings.MusicLook == MusicLook.Small ? Surface.SmallMusic
-                    : Surface.CompactMusic;
-
-            return Settings.IdleMode switch
-            {
-                IdleMode.Notch => Surface.Notch,
-                IdleMode.Circle => Surface.MiniIdle,
-                _ => Surface.CompactAmbient
-            };
+                HiddenForApp = fullscreen.ProcessName != null && Settings.ShouldHideFor(fullscreen.ProcessName),
+                TimerActive = TimerActive,
+                TimerRinging = TimerRinging,
+                ShelfWanted = ShelfWanted,
+                LocksWanted = LocksWanted,
+                PaletteWanted = PaletteWanted,
+                Hovering = hovering,
+                HasTrack = track != null,
+                Idle = idle,
+                StatusShowing = volumeVisible,
+                NotificationShowing = currentNotify != null,
+                PeekShowing = peekVisible,
+                IdleMode = Settings.IdleMode,
+                MusicLook = Settings.MusicLook
+            });
         }
 
         void UpdateSurface()

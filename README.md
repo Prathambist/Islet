@@ -70,4 +70,12 @@ dotnet run --project src/Islet
 dotnet test
 ```
 
-To release, push a tag such as `v1.6.0`. GitHub Actions builds the release and installed copies update to it.
+Every push and pull request is built and tested by GitHub Actions, with a coverage report, a dependency audit and CodeQL security scanning.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md): how Islet is put together
+- [Building and testing](docs/BUILDING.md): build, run, tests and coverage
+- [Releasing](docs/RELEASING.md): signing, publishing and the release checklist
+- [Security](SECURITY.md): what Islet can access, what it sends where, and how to report a problem
+- [Third-party notices](THIRD-PARTY-NOTICES.md): licences for libraries, services and assets

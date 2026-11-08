@@ -44,11 +44,32 @@ jobs:
         run: |
           Compress-Archive -Path ./publish/* -DestinationPath ./Islet-win-x64.zip
 
+      # Islet's updater and install.ps1 refuse a zip without a valid signature, so a release
+      # can't be published unsigned. The key is a repository secret; see docs/RELEASING.md.
+      - name: Sign Release Zip
+        shell: pwsh
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          if (-not $env:RELEASE_SIGNING_KEY) { throw "The RELEASE_SIGNING_KEY secret isn't set. See docs/RELEASING.md." }
+
+          $rsa = [System.Security.Cryptography.RSA]::Create()
+          $rsa.ImportFromPem($env:RELEASE_SIGNING_KEY)
+          $bytes = [IO.File]::ReadAllBytes("Islet-win-x64.zip")
+          $signature = $rsa.SignData($bytes, [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+          [IO.File]::WriteAllText("Islet-win-x64.zip.sig", [Convert]::ToBase64String($signature))
+
+          # A plain checksum too, for anyone checking a download by hand
+          "$((Get-FileHash Islet-win-x64.zip -Algorithm SHA256).Hash.ToLower())  Islet-win-x64.zip" | Set-Content Islet-win-x64.zip.sha256
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: Islet ${{ github.ref_name }}
-          files: Islet-win-x64.zip
+          files: |
+            Islet-win-x64.zip
+            Islet-win-x64.zip.sig
+            Islet-win-x64.zip.sha256
           draft: false
           prerelease: false
           generate_release_notes: true

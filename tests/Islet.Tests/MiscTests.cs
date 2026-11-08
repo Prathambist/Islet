@@ -5,16 +5,24 @@ namespace Islet.Tests;
 
 public class UpdateServiceTests
 {
-    static JsonElement Release(string tag, bool withZip = true) => JsonDocument.Parse($$"""
+    static JsonElement Release(string tag, bool withZip = true, bool signed = true) => JsonDocument.Parse($$"""
     {
       "tag_name": "{{tag}}",
       "html_url": "https://github.com/Prathambist/Islet/releases/tag/{{tag}}",
       "assets": [
         { "name": "notes.txt", "browser_download_url": "https://x/notes.txt" }
         {{(withZip ? """, { "name": "Islet-win-x64.zip", "browser_download_url": "https://x/app.zip" }""" : "")}}
+        {{(signed ? """, { "name": "Islet-win-x64.zip.sig", "browser_download_url": "https://x/app.zip.sig" }""" : "")}}
       ]
     }
     """).RootElement.Clone();
+
+    [Fact]
+    public void Offers_only_signed_releases()
+    {
+        Assert.Equal("https://x/app.zip.sig", UpdateService.ParseRelease(Release("v1.2.0"), Installed)!.SignatureUrl);
+        Assert.Null(UpdateService.ParseRelease(Release("v1.2.0", signed: false), Installed));
+    }
 
     static readonly Version Installed = new(1, 1, 0);
 

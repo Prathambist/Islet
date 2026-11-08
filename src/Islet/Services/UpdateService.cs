@@ -14,7 +14,7 @@ namespace Islet
     {
         const string Repo = "Prathambist/Islet";
 
-        public sealed record Release(Version Version, string Tag, string ZipUrl, string PageUrl);
+        public sealed record Release(Version Version, string Tag, string ZipUrl, string PageUrl, string SignatureUrl);
 
         static readonly HttpClient http = CreateClient();
 
@@ -61,7 +61,8 @@ namespace Islet
 
         /// <summary>
         /// A GitHub "latest release" response, if it is newer than <paramref name="current"/>
-        /// and has a .zip to install.
+        /// and has a .zip to install with its signature beside it. Unsigned releases aren't
+        /// offered at all, so a tampered or half-published one can't be installed.
         /// </summary>
         internal static Release? ParseRelease(JsonElement root, Version current)
         {
@@ -70,26 +71,40 @@ namespace Islet
             if (!Version.TryParse(tag.TrimStart('v', 'V'), out var version))
                 return null;
 
-            string? zip = null;
+            string? zipName = null, zip = null;
+            var urls = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var asset in root.GetProperty("assets").EnumerateArray())
             {
                 string name = asset.GetProperty("name").GetString() ?? "";
+                string? url = asset.GetProperty("browser_download_url").GetString();
 
-                if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                if (url == null)
+                    continue;
+
+                urls[name] = url;
+
+                if (zip == null && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                 {
-                    zip = asset.GetProperty("browser_download_url").GetString();
-                    break;
+                    zipName = name;
+                    zip = url;
                 }
             }
 
             if (zip == null || Normalize(version) <= Normalize(current))
                 return null;
 
+            if (!urls.TryGetValue(zipName + ".sig", out var signature))
+            {
+                Log.Info($"Release {tag} has no signature, so it isn't offered");
+                return null;
+            }
+
             return new Release(Normalize(version), tag, zip,
-                root.TryGetProperty("html_url", out var page) && page.GetString() is string url
-                    ? url
-                    : $"https://github.com/{Repo}/releases/latest");
+                root.TryGetProperty("html_url", out var page) && page.GetString() is string pageUrl
+                    ? pageUrl
+                    : $"https://github.com/{Repo}/releases/latest",
+                signature);
         }
 
         /// <summary>
@@ -118,6 +133,15 @@ namespace Islet
             await using (var download = await http.GetStreamAsync(release.ZipUrl))
             await using (var file = File.Create(zipPath))
                 await download.CopyToAsync(file);
+
+            // Nothing is unpacked, let alone installed, unless it was signed with the release key
+            string signature = await http.GetStringAsync(release.SignatureUrl);
+
+            if (!ReleaseSignature.Verify(await File.ReadAllBytesAsync(zipPath), signature))
+            {
+                Directory.Delete(work, true);
+                throw new InvalidOperationException($"Update {release.Tag} isn't signed with Islet's release key, so it wasn't installed.");
+            }
 
             ZipFile.ExtractToDirectory(zipPath, unpacked);
 

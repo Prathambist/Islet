@@ -1,0 +1,61 @@
+name: CI
+
+# Every push to main and every pull request: build, test with coverage, and check the
+# dependencies for known vulnerabilities. A red check here means don't merge yet.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Islet.sln
+
+      # Warnings fail the build, so they get fixed rather than piling up
+      - name: Build
+        run: dotnet build Islet.sln -c Release --no-restore -warnaserror
+
+      - name: Test With Coverage
+        run: >
+          dotnet test tests/Islet.Tests/Islet.Tests.csproj -c Release --no-build
+          --collect:"XPlat Code Coverage" --results-directory ./coverage
+          --logger "trx;LogFileName=results.trx"
+
+      - name: Coverage Report
+        if: always()
+        run: |
+          dotnet tool install --global dotnet-reportgenerator-globaltool --version 5.4.4
+          reportgenerator -reports:"coverage/**/coverage.cobertura.xml" -targetdir:coverage-report -reporttypes:"Html;MarkdownSummaryGithub"
+          Get-Content coverage-report/SummaryGithub.md | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload Test Results And Coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-and-coverage
+          path: |
+            coverage/**/*.trx
+            coverage-report
+
+      # Any package with a known vulnerability, direct or pulled in by another, fails the check
+      - name: Dependency Audit
+        run: |
+          $report = dotnet list Islet.sln package --vulnerable --include-transitive 2>&1 | Out-String
+          Write-Host $report
+          if ($report -match 'has the following vulnerable packages') { throw "Vulnerable packages found" }
