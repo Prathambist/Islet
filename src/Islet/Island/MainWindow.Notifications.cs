@@ -37,7 +37,7 @@ namespace Islet
                 ChatApp.WhatsApp => (Color.FromRgb(37, 211, 102),
                     n.FromBrowser ? "https://web.whatsapp.com" : "whatsapp://", "WhatsAppLogo"),
                 ChatApp.Messenger => (Color.FromRgb(0, 132, 255), "https://www.messenger.com", "MessengerLogo"),
-                _ => (Color.FromRgb(72, 72, 74), (string?)null, (string?)null)
+                _ => (Color.FromRgb(72, 72, 74), null, null)
             };
 
             Enqueue(new NotifyItem(

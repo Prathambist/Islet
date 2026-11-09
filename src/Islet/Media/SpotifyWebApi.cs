@@ -47,7 +47,7 @@ namespace Islet
             string challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
             string state = Base64Url(RandomNumberGenerator.GetBytes(16));
 
-            var listener = new TcpListener(IPAddress.Loopback, RedirectPort);
+            using var listener = new TcpListener(IPAddress.Loopback, RedirectPort);
             listener.Start();
 
             try
@@ -170,9 +170,8 @@ namespace Islet
 
         static async Task<JsonElement> PostToken(Dictionary<string, string> form)
         {
-            using var response = await http.PostAsync(
-                "https://accounts.spotify.com/api/token",
-                new FormUrlEncodedContent(form));
+            using var content = new FormUrlEncodedContent(form);
+            using var response = await http.PostAsync("https://accounts.spotify.com/api/token", content);
 
             string json = await response.Content.ReadAsStringAsync();
 
@@ -258,7 +257,7 @@ namespace Islet
             if (token == null)
                 return null;
 
-            var request = new HttpRequestMessage(method, "https://api.spotify.com/v1" + path);
+            using var request = new HttpRequestMessage(method, "https://api.spotify.com/v1" + path);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             return await http.SendAsync(request);
         }

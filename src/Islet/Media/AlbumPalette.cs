@@ -147,18 +147,19 @@ namespace Islet
             double min = Math.Min(r, Math.Min(g, b));
             double delta = max - min;
             double lightness = (max + min) / 2;
-            double saturation = delta == 0 ? 0 : delta / (1 - Math.Abs(2 * lightness - 1));
+            double saturation = delta <= 0 ? 0 : delta / (1 - Math.Abs(2 * lightness - 1));
 
             return (Hue(r, g, b, max, delta), Math.Clamp(saturation, 0, 1), lightness);
         }
 
         static double Hue(double r, double g, double b, double max, double delta)
         {
-            if (delta == 0)
+            if (delta <= 0)
                 return 0;
 
-            double hue = max == r ? (g - b) / delta % 6
-                : max == g ? (b - r) / delta + 2
+            // Which channel is the brightest decides the sector of the colour wheel
+            double hue = r >= g && r >= b ? (g - b) / delta % 6
+                : g >= b ? (b - r) / delta + 2
                 : (r - g) / delta + 4;
 
             hue *= 60;

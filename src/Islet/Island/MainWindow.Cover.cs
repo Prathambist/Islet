@@ -38,7 +38,7 @@ namespace Islet
             if (!show)
                 fade.Completed += (s, e) =>
                 {
-                    if (CoverBackdrop.Opacity == 0)
+                    if (CoverBackdrop.Opacity < 0.01)
                         CoverBackdrop.Visibility = Visibility.Collapsed;
                 };
 

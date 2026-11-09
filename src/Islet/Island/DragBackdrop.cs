@@ -103,7 +103,7 @@ namespace Islet
                 return;
             }
 
-            if (next != Opacity)
+            if (Math.Abs(next - Opacity) > 0.001)
                 Opacity = next;
 
             if (!IsVisible)

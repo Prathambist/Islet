@@ -1,4 +1,6 @@
 using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace Islet
 {
@@ -34,13 +36,29 @@ namespace Islet
         /// <summary>A .lnk at <paramref name="path"/> that starts <paramref name="exe"/>.</summary>
         public static void Create(string path, string exe, string description)
         {
-            var shellType = Type.GetTypeFromProgID("WScript.Shell")!;
-            dynamic shell = Activator.CreateInstance(shellType)!;
-            dynamic shortcut = shell.CreateShortcut(path);
-            shortcut.TargetPath = exe;
-            shortcut.WorkingDirectory = Path.GetDirectoryName(exe);
-            shortcut.Description = description;
-            shortcut.Save();
+            var shellType = Type.GetTypeFromProgID("WScript.Shell")
+                ?? throw new InvalidOperationException("Windows Script Host isn't available.");
+            object shell = Activator.CreateInstance(shellType)!;
+            object? shortcut = null;
+
+            try
+            {
+                // Late-bound calls through the COM object's own dispatch interface
+                shortcut = Call(shell, "CreateShortcut", BindingFlags.InvokeMethod, path)!;
+                Call(shortcut, "TargetPath", BindingFlags.SetProperty, exe);
+                Call(shortcut, "WorkingDirectory", BindingFlags.SetProperty, Path.GetDirectoryName(exe) ?? "");
+                Call(shortcut, "Description", BindingFlags.SetProperty, description);
+                Call(shortcut, "Save", BindingFlags.InvokeMethod);
+            }
+            finally
+            {
+                if (shortcut != null)
+                    Marshal.FinalReleaseComObject(shortcut);
+                Marshal.FinalReleaseComObject(shell);
+            }
         }
+
+        static object? Call(object target, string name, BindingFlags kind, params object[] args) =>
+            target.GetType().InvokeMember(name, kind, null, target, args);
     }
 }

@@ -334,8 +334,11 @@ namespace Islet
                 hookThreadId = GetCurrentThreadId();
                 hook = SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(null), 0);
 
+                // The hook only runs while this thread pumps messages
                 while (GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
                 {
+                    TranslateMessage(ref msg);
+                    DispatchMessage(ref msg);
                 }
 
                 if (hook != IntPtr.Zero)
@@ -438,6 +441,12 @@ namespace Islet
 
         [DllImport("user32.dll")]
         static extern int GetMessage(out Msg msg, IntPtr window, uint min, uint max);
+
+        [DllImport("user32.dll")]
+        static extern bool TranslateMessage(ref Msg msg);
+
+        [DllImport("user32.dll")]
+        static extern IntPtr DispatchMessage(ref Msg msg);
 
         [DllImport("user32.dll")]
         static extern bool PostThreadMessage(uint thread, int message, IntPtr wParam, IntPtr lParam);
