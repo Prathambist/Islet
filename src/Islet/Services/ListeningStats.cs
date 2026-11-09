@@ -9,27 +9,52 @@ namespace Islet
         public static readonly DaySummary Empty = new(TimeSpan.Zero, null, null);
     }
 
-    /// <summary>A song or artist in a day's top list, with how long it played. Artist is null for an artist's own entry.</summary>
+    /// <summary>A song or artist in a top list, with how long it played. Artist is null for an artist's own entry.</summary>
     public sealed record Ranked(string Name, string? Artist, TimeSpan Time);
 
     /// <summary>
-    /// Keeps count of how long music actually plays each day, by artist and by song, for the
-    /// daily summary and the Listening page. Only playing time counts, not paused. Only today
-    /// and yesterday are kept, in their own small file, and nowhere else: none of it leaves the PC.
+    /// Everything that played over one or more days: the total, every song and artist longest
+    /// first, and how the listening spread over the hours of the day.
+    /// </summary>
+    public sealed record ListeningPeriod(TimeSpan Total, IReadOnlyList<Ranked> Songs, IReadOnlyList<Ranked> Artists, IReadOnlyList<TimeSpan> Hours)
+    {
+        /// <summary>The hour of the day with the most music, or null with none counted.</summary>
+        public int? PeakHour
+        {
+            get
+            {
+                int peak = 0;
+
+                for (int hour = 1; hour < Hours.Count; hour++)
+                    if (Hours[hour] > Hours[peak])
+                        peak = hour;
+
+                return Hours.Count > 0 && Hours[peak] > TimeSpan.Zero ? peak : null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Keeps count of how long music actually plays each day, by artist, by song and by hour, for
+    /// the daily summary and the Listening page. Only playing time counts, not paused. The last
+    /// week is kept, in its own small file, and nowhere else: none of it leaves the PC.
     /// </summary>
     public sealed class ListeningStats
     {
-        /// <summary>Today and yesterday.</summary>
-        public const int DaysKept = 2;
+        /// <summary>Today and the six days before it.</summary>
+        public const int DaysKept = 7;
 
         const string Separator = " — ";
 
-        // Seconds, by day ("2026-11-09"), then by artist and by "Title — Artist"
+        // Seconds, by day ("2026-11-09"), then by artist, by "Title — Artist" and by hour
         sealed class Day
         {
             public double Seconds { get; set; }
             public Dictionary<string, double> Artists { get; set; } = new();
             public Dictionary<string, double> Songs { get; set; } = new();
+
+            // Missing from days counted before hours were
+            public double[]? Hours { get; set; }
         }
 
         sealed class Store
@@ -55,6 +80,8 @@ namespace Islet
 
         static string Key(DateTime day) => day.ToString("yyyy-MM-dd");
 
+        string Oldest => Key(clock().AddDays(1 - DaysKept));
+
         public void Add(DateTime when, string artist, string title, TimeSpan played)
         {
             if (played <= TimeSpan.Zero)
@@ -67,6 +94,9 @@ namespace Islet
 
             double seconds = played.TotalSeconds;
             day.Seconds += seconds;
+
+            day.Hours ??= new double[24];
+            day.Hours[when.Hour] += seconds;
 
             artist = artist.Trim();
             title = title.Trim();
@@ -104,26 +134,60 @@ namespace Islet
         static IEnumerable<KeyValuePair<string, double>> Ranking(Dictionary<string, double> counts) =>
             counts.OrderByDescending(c => c.Value).ThenBy(c => c.Key, StringComparer.Ordinal);
 
-        /// <summary>The songs that played longest on that day, longest first, each split into title and artist.</summary>
-        public IReadOnlyList<Ranked> TopSongs(DateTime when, int count)
+        /// <summary>Everything that played from <paramref name="first"/> to <paramref name="last"/>, both days included.</summary>
+        public ListeningPeriod Period(DateTime first, DateTime last)
         {
-            if (!store.Days.TryGetValue(Key(when), out var day))
-                return Array.Empty<Ranked>();
+            double seconds = 0;
+            var songs = new Dictionary<string, double>();
+            var artists = new Dictionary<string, double>();
+            var hours = new double[24];
 
-            return Ranking(day.Songs).Take(count).Select(s =>
+            for (var date = first.Date; date <= last.Date; date = date.AddDays(1))
             {
-                int split = s.Key.LastIndexOf(Separator, StringComparison.Ordinal);
-                return split < 0
-                    ? new Ranked(s.Key, null, TimeSpan.FromSeconds(s.Value))
-                    : new Ranked(s.Key[..split], s.Key[(split + Separator.Length)..], TimeSpan.FromSeconds(s.Value));
-            }).ToList();
+                if (!store.Days.TryGetValue(Key(date), out var day))
+                    continue;
+
+                seconds += day.Seconds;
+
+                foreach (var (song, s) in day.Songs)
+                    songs[song] = songs.GetValueOrDefault(song) + s;
+
+                foreach (var (artist, s) in day.Artists)
+                    artists[artist] = artists.GetValueOrDefault(artist) + s;
+
+                if (day.Hours != null)
+                    for (int hour = 0; hour < 24 && hour < day.Hours.Length; hour++)
+                        hours[hour] += day.Hours[hour];
+            }
+
+            return new ListeningPeriod(
+                TimeSpan.FromSeconds(seconds),
+                Ranking(songs).Select(s => SongEntry(s.Key, s.Value)).ToList(),
+                Ranking(artists).Select(a => new Ranked(a.Key, null, TimeSpan.FromSeconds(a.Value))).ToList(),
+                hours.Select(TimeSpan.FromSeconds).ToList());
         }
 
+        // "Title — Artist" back into its title and artist
+        static Ranked SongEntry(string key, double seconds)
+        {
+            int split = key.LastIndexOf(Separator, StringComparison.Ordinal);
+            return split < 0
+                ? new Ranked(key, null, TimeSpan.FromSeconds(seconds))
+                : new Ranked(key[..split], key[(split + Separator.Length)..], TimeSpan.FromSeconds(seconds));
+        }
+
+        /// <summary>How long music played on each of the <paramref name="days"/> days up to <paramref name="last"/>, oldest first.</summary>
+        public IReadOnlyList<(DateTime Day, TimeSpan Total)> Daily(DateTime last, int days) =>
+            Enumerable.Range(0, days)
+                .Select(i => last.Date.AddDays(i - days + 1))
+                .Select(d => (d, store.Days.TryGetValue(Key(d), out var day) ? TimeSpan.FromSeconds(day.Seconds) : TimeSpan.Zero))
+                .ToList();
+
+        /// <summary>The songs that played longest on that day, longest first, each split into title and artist.</summary>
+        public IReadOnlyList<Ranked> TopSongs(DateTime when, int count) => Period(when, when).Songs.Take(count).ToList();
+
         /// <summary>The artists heard longest on that day, longest first.</summary>
-        public IReadOnlyList<Ranked> TopArtists(DateTime when, int count) =>
-            store.Days.TryGetValue(Key(when), out var day)
-                ? Ranking(day.Artists).Take(count).Select(a => new Ranked(a.Key, null, TimeSpan.FromSeconds(a.Value))).ToList()
-                : Array.Empty<Ranked>();
+        public IReadOnlyList<Ranked> TopArtists(DateTime when, int count) => Period(when, when).Artists.Take(count).ToList();
 
         public bool SummaryShown(DateTime when) => store.SummaryShownOn == Key(when);
 
@@ -141,6 +205,10 @@ namespace Islet
             : time.Minutes == 0 ? $"{(int)time.TotalHours} h"
             : $"{(int)time.TotalHours} h {time.Minutes} min";
 
+        /// <summary>"2 h 14 min", "45 min", "0 min": the same, where space is short.</summary>
+        public static string ShortDuration(TimeSpan time) =>
+            time.TotalHours < 1 ? $"{(int)time.TotalMinutes} min" : Duration(time);
+
         /// <summary>"Today: 2 h 14 min of music · mostly Arctic Monkeys", or null with nothing played yet.</summary>
         public static string? Describe(DaySummary today)
         {
@@ -156,8 +224,8 @@ namespace Islet
             if (!dirty)
                 return;
 
-            // Days before yesterday aren't shown anywhere
-            string oldest = Key(clock().AddDays(1 - DaysKept));
+            // Days before the last week aren't shown anywhere
+            string oldest = Oldest;
 
             foreach (var key in store.Days.Keys.Where(k => string.CompareOrdinal(k, oldest) < 0).ToList())
                 store.Days.Remove(key);
@@ -188,8 +256,8 @@ namespace Islet
                 store = new Store();
             }
 
-            // Anything older than yesterday, left from before, goes on the next save
-            string oldest = Key(clock().AddDays(1 - DaysKept));
+            // Anything older than the last week, left from before, goes on the next save
+            string oldest = Oldest;
             dirty = store.Days.Keys.Any(k => string.CompareOrdinal(k, oldest) < 0);
         }
     }

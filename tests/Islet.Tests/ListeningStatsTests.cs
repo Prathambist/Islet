@@ -98,19 +98,67 @@ namespace Islet.Tests
         }
 
         [Fact]
-        public void KeepsTodayAndYesterdayOnly()
+        public void KeepsTheLastWeekOnly()
         {
             var stats = new ListeningStats(folder, () => Evening);
-            stats.Add(Evening.AddDays(-2), "Old", "Two days ago", TimeSpan.FromMinutes(30));
-            stats.Add(Evening.AddDays(-1), "Someone", "Yesterday", TimeSpan.FromMinutes(20));
+            stats.Add(Evening.AddDays(-7), "Old", "A week ago", TimeSpan.FromMinutes(30));
+            stats.Add(Evening.AddDays(-6), "Someone", "Six days ago", TimeSpan.FromMinutes(20));
             stats.Add(Evening, "Someone", "Today", TimeSpan.FromMinutes(10));
             stats.Save();
 
             var reopened = new ListeningStats(folder, () => Evening);
 
             Assert.Equal(TimeSpan.FromMinutes(10), reopened.For(Evening).Total);
-            Assert.Equal("Yesterday", reopened.TopSongs(Evening.AddDays(-1), 5).Single().Name);
-            Assert.Empty(reopened.TopSongs(Evening.AddDays(-2), 5));
+            Assert.Equal("Six days ago", reopened.TopSongs(Evening.AddDays(-6), 5).Single().Name);
+            Assert.Empty(reopened.TopSongs(Evening.AddDays(-7), 5));
+        }
+
+        [Fact]
+        public void AWeekAddsUpAcrossDays()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+            stats.Add(Evening.AddDays(-3), "Tame Impala", "Let It Happen", TimeSpan.FromMinutes(20));
+            stats.Add(Evening.AddDays(-1), "Tame Impala", "Let It Happen", TimeSpan.FromMinutes(15));
+            stats.Add(Evening, "Arctic Monkeys", "505", TimeSpan.FromMinutes(30));
+
+            var week = stats.Period(Evening.AddDays(-6), Evening);
+
+            Assert.Equal(TimeSpan.FromMinutes(65), week.Total);
+            Assert.Equal(new Ranked("Let It Happen", "Tame Impala", TimeSpan.FromMinutes(35)), week.Songs[0]);
+            Assert.Equal(new[] { "Tame Impala", "Arctic Monkeys" }, week.Artists.Select(a => a.Name));
+        }
+
+        [Fact]
+        public void CountsTheHoursOfTheDay()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+            stats.Add(Evening.Date.AddHours(8), "A", "Morning", TimeSpan.FromMinutes(10));
+            stats.Add(Evening, "A", "Evening", TimeSpan.FromMinutes(25));
+
+            var day = stats.Period(Evening, Evening);
+
+            Assert.Equal(24, day.Hours.Count);
+            Assert.Equal(TimeSpan.FromMinutes(10), day.Hours[8]);
+            Assert.Equal(TimeSpan.FromMinutes(25), day.Hours[21]);
+            Assert.Equal(21, day.PeakHour);
+            Assert.Null(stats.Period(Evening.AddDays(-1), Evening.AddDays(-1)).PeakHour);
+        }
+
+        [Fact]
+        public void GivesEachDayOfTheWeekOldestFirst()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+            stats.Add(Evening.AddDays(-2), "A", "Song", TimeSpan.FromMinutes(12));
+            stats.Add(Evening, "A", "Song", TimeSpan.FromMinutes(5));
+
+            var daily = stats.Daily(Evening, 7);
+
+            Assert.Equal(7, daily.Count);
+            Assert.Equal(Evening.Date.AddDays(-6), daily[0].Day);
+            Assert.Equal(Evening.Date, daily[6].Day);
+            Assert.Equal(TimeSpan.FromMinutes(12), daily[4].Total);
+            Assert.Equal(TimeSpan.FromMinutes(5), daily[6].Total);
+            Assert.Equal(TimeSpan.Zero, daily[5].Total);
         }
 
         [Fact]
