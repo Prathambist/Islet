@@ -55,6 +55,7 @@ namespace Islet
 
             BuildIslandPage();
             BuildMusicPage();
+            BuildListeningPage();
             BuildNotificationsPage();
             BuildToolsPage();
             BuildFullscreenPage();
@@ -236,16 +237,13 @@ namespace Islet
                 (int)Settings.ScrollTarget,
                 i => { Settings.ScrollTarget = (ScrollTarget)i; Settings.Save(); });
 
-            var away = Group("Away and summaries");
+            var away = Group("While you're away");
             int[] screensaverMinutes = { 0, 2, 5, 10 };
             ChoiceRow(away, "Album art screensaver",
                 "When you're away while music plays, the island grows into a full-screen cover with lyrics. Any key or mouse movement brings you back.",
                 new[] { "Off", "2 min", "5 min", "10 min" },
                 Math.Max(0, Array.IndexOf(screensaverMinutes, Settings.ScreensaverMinutes)),
                 i => { Settings.ScreensaverMinutes = screensaverMinutes[i]; Settings.Save(); });
-            SwitchRow(away, "Daily music summary",
-                "How long you listened today, and to whom, on the idle island, with a short recap at 9 PM. Counted on this PC only.",
-                Settings.DailyMusicSummary, v => { Settings.DailyMusicSummary = v; Settings.Save(); });
 
             var account = Group("Spotify account");
             Row(account, "Like button",

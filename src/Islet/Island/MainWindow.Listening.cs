@@ -7,6 +7,9 @@ namespace Islet
     public partial class MainWindow
     {
         readonly ListeningStats listening = new(AppSettings.Folder);
+
+        /// <summary>What has played today and yesterday, for the Listening page in Settings.</summary>
+        public ListeningStats Listening => listening;
         DateTime lastCounted = DateTime.Now;
         AlbumScreensaver? screensaver;
 

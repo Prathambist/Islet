@@ -9,14 +9,20 @@ namespace Islet
         public static readonly DaySummary Empty = new(TimeSpan.Zero, null, null);
     }
 
+    /// <summary>A song or artist in a day's top list, with how long it played. Artist is null for an artist's own entry.</summary>
+    public sealed record Ranked(string Name, string? Artist, TimeSpan Time);
+
     /// <summary>
     /// Keeps count of how long music actually plays each day, by artist and by song, for the
-    /// daily summary. Only playing time counts, not paused. Kept for 60 days, in its own small
-    /// file, and nowhere else: none of it leaves the PC.
+    /// daily summary and the Listening page. Only playing time counts, not paused. Only today
+    /// and yesterday are kept, in their own small file, and nowhere else: none of it leaves the PC.
     /// </summary>
     public sealed class ListeningStats
     {
-        public const int DaysKept = 60;
+        /// <summary>Today and yesterday.</summary>
+        public const int DaysKept = 2;
+
+        const string Separator = " — ";
 
         // Seconds, by day ("2026-11-09"), then by artist and by "Title — Artist"
         sealed class Day
@@ -35,13 +41,15 @@ namespace Islet
         }
 
         readonly string path;
+        readonly Func<DateTime> clock;
         Store store = new();
         DateTime lastSaved = DateTime.MinValue;
         bool dirty;
 
-        public ListeningStats(string folder)
+        public ListeningStats(string folder, Func<DateTime>? clock = null)
         {
             path = Path.Combine(folder, "listening.json");
+            this.clock = clock ?? (() => DateTime.Now);
             Load();
         }
 
@@ -68,7 +76,7 @@ namespace Islet
 
             if (title.Length > 0)
             {
-                string song = artist.Length > 0 ? $"{title} — {artist}" : title;
+                string song = artist.Length > 0 ? title + Separator + artist : title;
                 day.Songs[song] = day.Songs.GetValueOrDefault(song) + seconds;
             }
 
@@ -91,7 +99,31 @@ namespace Islet
         }
 
         static string? Top(Dictionary<string, double> counts) =>
-            counts.Count == 0 ? null : counts.OrderByDescending(c => c.Value).ThenBy(c => c.Key).First().Key;
+            counts.Count == 0 ? null : Ranking(counts).First().Key;
+
+        static IEnumerable<KeyValuePair<string, double>> Ranking(Dictionary<string, double> counts) =>
+            counts.OrderByDescending(c => c.Value).ThenBy(c => c.Key, StringComparer.Ordinal);
+
+        /// <summary>The songs that played longest on that day, longest first, each split into title and artist.</summary>
+        public IReadOnlyList<Ranked> TopSongs(DateTime when, int count)
+        {
+            if (!store.Days.TryGetValue(Key(when), out var day))
+                return Array.Empty<Ranked>();
+
+            return Ranking(day.Songs).Take(count).Select(s =>
+            {
+                int split = s.Key.LastIndexOf(Separator, StringComparison.Ordinal);
+                return split < 0
+                    ? new Ranked(s.Key, null, TimeSpan.FromSeconds(s.Value))
+                    : new Ranked(s.Key[..split], s.Key[(split + Separator.Length)..], TimeSpan.FromSeconds(s.Value));
+            }).ToList();
+        }
+
+        /// <summary>The artists heard longest on that day, longest first.</summary>
+        public IReadOnlyList<Ranked> TopArtists(DateTime when, int count) =>
+            store.Days.TryGetValue(Key(when), out var day)
+                ? Ranking(day.Artists).Take(count).Select(a => new Ranked(a.Key, null, TimeSpan.FromSeconds(a.Value))).ToList()
+                : Array.Empty<Ranked>();
 
         public bool SummaryShown(DateTime when) => store.SummaryShownOn == Key(when);
 
@@ -124,8 +156,8 @@ namespace Islet
             if (!dirty)
                 return;
 
-            // Older days than this aren't shown anywhere
-            string oldest = Key(DateTime.Now.AddDays(-DaysKept));
+            // Days before yesterday aren't shown anywhere
+            string oldest = Key(clock().AddDays(1 - DaysKept));
 
             foreach (var key in store.Days.Keys.Where(k => string.CompareOrdinal(k, oldest) < 0).ToList())
                 store.Days.Remove(key);
@@ -150,10 +182,15 @@ namespace Islet
                 if (File.Exists(path))
                     store = JsonSerializer.Deserialize<Store>(File.ReadAllText(path)) ?? new Store();
             }
-            catch
+            catch (Exception ex)
             {
+                Log.Error("Reading listening stats failed; starting afresh", ex);
                 store = new Store();
             }
+
+            // Anything older than yesterday, left from before, goes on the next save
+            string oldest = Key(clock().AddDays(1 - DaysKept));
+            dirty = store.Days.Keys.Any(k => string.CompareOrdinal(k, oldest) < 0);
         }
     }
 }
