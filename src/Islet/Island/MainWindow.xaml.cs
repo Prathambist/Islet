@@ -169,6 +169,7 @@ namespace Islet
             SetUpQuiet();
             SetUpScreenshots();
             SetUpLocks();
+            SetUpListening();
 
             systemStatus.VolumeChanged += (level, muted) => Dispatcher.BeginInvoke(() =>
             {
@@ -253,6 +254,7 @@ namespace Islet
             {
                 UpdateClock();
                 UpdateSurface();
+                TickListening();
 
                 // Without a frame loop in Low mode, the card's progress moves once a second
                 if (!Profile.AnimatedBars)

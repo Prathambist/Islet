@@ -823,18 +823,13 @@
 
                     <!-- While a file is dragged over: where to let go -->
                     <!-- While a file is dragged over: keep it, or find out what has it open -->
-                    <Grid x:Name="ShelfDropHint"
-                          Margin="12"
-                          Opacity="0"
-                          Visibility="Collapsed"
-                          IsHitTestVisible="False">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition/>
-                            <ColumnDefinition Width="8"/>
-                            <ColumnDefinition/>
-                        </Grid.ColumnDefinitions>
-
-                        <Grid x:Name="ShelfZone">
+                    <UniformGrid x:Name="ShelfDropHint"
+                                 Rows="1"
+                                 Margin="8"
+                                 Opacity="0"
+                                 Visibility="Collapsed"
+                                 IsHitTestVisible="False">
+                        <Grid x:Name="ShelfZone" Margin="4">
                             <Rectangle x:Name="ShelfZoneOutline"
                                        RadiusX="16"
                                        RadiusY="16"
@@ -851,15 +846,15 @@
                                            HorizontalAlignment="Center"/>
                                 <TextBlock Text="Keep on the shelf"
                                            Foreground="White"
-                                           FontSize="12.5"
+                                           FontSize="12"
                                            FontWeight="SemiBold"
-                                           Margin="0,6,0,0"
+                                           TextAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           Margin="4,6,4,0"
                                            HorizontalAlignment="Center"/>
                             </StackPanel>
                         </Grid>
-
-                        <Grid x:Name="LockZone"
-                              Grid.Column="2">
+                        <Grid x:Name="LockZone" Margin="4">
                             <Rectangle x:Name="LockZoneOutline"
                                        RadiusX="16"
                                        RadiusY="16"
@@ -876,13 +871,15 @@
                                            HorizontalAlignment="Center"/>
                                 <TextBlock Text="What's using it?"
                                            Foreground="White"
-                                           FontSize="12.5"
+                                           FontSize="12"
                                            FontWeight="SemiBold"
-                                           Margin="0,6,0,0"
+                                           TextAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           Margin="4,6,4,0"
                                            HorizontalAlignment="Center"/>
                             </StackPanel>
                         </Grid>
-                    </Grid>
+                    </UniformGrid>
                 </Grid>
 
                 <!-- ===== Colours picked lately ===== -->
@@ -1422,8 +1419,11 @@
 
                         <DockPanel Grid.Row="1"
                                    LastChildFill="False">
-                            <TextBlock Text="Nothing playing"
+                            <TextBlock x:Name="AmbientCaption"
+                                       Text="Nothing playing"
                                        Style="{StaticResource Caption}"
+                                       TextTrimming="CharacterEllipsis"
+                                       MaxWidth="210"
                                        VerticalAlignment="Center"/>
 
                             <Button DockPanel.Dock="Right"

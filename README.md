@@ -31,6 +31,8 @@ irm https://raw.githubusercontent.com/Prathambist/Islet/main/uninstall.ps1 | iex
 - **Now Playing:** play, pause, skip, seek, shuffle and repeat. Album art sets the colours.
 - **Live visualizer:** bars that move with the music.
 - **Synced lyrics:** from [LRCLIB](https://lrclib.net).
+- **Album art screensaver:** away from the PC while music plays, the island grows into a full-screen cover with lyrics.
+- **Daily music summary:** how long you listened today, and to whom, with a short recap in the evening.
 - **Volume:** scroll over the island to change it.
 - **Volume and brightness:** changes show on the island.
 - **Message notifications:** from Discord, WhatsApp and Messenger.

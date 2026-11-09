@@ -227,6 +227,22 @@ namespace Islet
                 v => { Settings.ShowLyrics = v; Settings.Save(); }));
             playback.Children.Add(Note("The current line appears under the song when you open the island. Lyrics by LRCLIB."));
 
+            playback.Children.Add(Switch("Daily music summary", Settings.DailyMusicSummary,
+                v => { Settings.DailyMusicSummary = v; Settings.Save(); }));
+            playback.Children.Add(Note(
+                "How long you listened today, and to whom, under the clock on the idle island, with a " +
+                "short summary at 9 PM. It's counted on this PC only."));
+
+            playback.Children.Add(Label("Album art screensaver"));
+            int[] screensaverMinutes = { 0, 2, 5, 10 };
+            playback.Children.Add(Segmented(
+                new[] { "Off", "2 min", "5 min", "10 min" },
+                Math.Max(0, Array.IndexOf(screensaverMinutes, Settings.ScreensaverMinutes)),
+                i => { Settings.ScreensaverMinutes = screensaverMinutes[i]; Settings.Save(); }));
+            playback.Children.Add(Note(
+                "When you're away from the PC while music plays, the island grows into a full-screen " +
+                "cover with lyrics. Any key or mouse movement brings you back."));
+
             playback.Children.Add(Switch("Use album art for music videos", Settings.FindVideoArt,
                 v => { Settings.FindVideoArt = v; Settings.Save(); }));
             playback.Children.Add(Note(

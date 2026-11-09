@@ -47,9 +47,15 @@ namespace Islet
         // Dragging over shows the drop zones even with the shelf off, for "What's using it?"
         bool ShelfWanted => shelfDragOver && (ShelfOn || LocksOn) || ShelfOn && (draggingOut || shelfOpen && shelf.Items.Count > 0);
 
-        // Which zone a drag over the island would land in, and which zones it offers
-        bool dropOnLocks;
-        bool lockZoneShown;
+        enum DropZone
+        {
+            Shelf,
+            Locks
+        }
+
+        // Which zone a drag over the island would land in
+        DropZone dropZone;
+        DropZone[] dropZones = Array.Empty<DropZone>();
 
         double ShelfHeight => shelf.Items.Count > 0 ? 136 : 100;
 
@@ -151,28 +157,36 @@ namespace Islet
                          e.Data.GetDataPresent(DataFormats.UnicodeText)) ||
              LocksOn && e.Data.GetDataPresent(DataFormats.FileDrop));
 
-        // Only files can be checked; only the shelf takes images and text
+        // Only files can be checked; the shelf takes anything
         void ChooseZones(DragEventArgs e)
         {
             bool files = e.Data.GetDataPresent(DataFormats.FileDrop);
-            bool both = ShelfOn && LocksOn && files;
-            bool locksOnly = !ShelfOn && LocksOn && files;
 
-            lockZoneShown = both || locksOnly;
-            ShelfZone.Visibility = locksOnly ? Visibility.Collapsed : Visibility.Visible;
-            LockZone.Visibility = lockZoneShown ? Visibility.Visible : Visibility.Collapsed;
-            Grid.SetColumnSpan(ShelfZone, both ? 1 : 3);
-            Grid.SetColumn(LockZone, both ? 2 : 0);
-            Grid.SetColumnSpan(LockZone, both ? 1 : 3);
+            var zones = new List<DropZone>();
 
-            // The half the pointer is over lights up
-            bool onLocks = locksOnly || both && e.GetPosition(ShelfDropHint).X > ShelfDropHint.ActualWidth / 2;
+            if (ShelfOn)
+                zones.Add(DropZone.Shelf);
 
-            if (onLocks != dropOnLocks || !shelfDragOver)
+            if (LocksOn && files)
+                zones.Add(DropZone.Locks);
+
+            if (zones.Count == 0)
+                return;
+
+            dropZones = zones.ToArray();
+            ShelfZone.Visibility = zones.Contains(DropZone.Shelf) ? Visibility.Visible : Visibility.Collapsed;
+            LockZone.Visibility = zones.Contains(DropZone.Locks) ? Visibility.Visible : Visibility.Collapsed;
+
+            // The zone the pointer is over lights up
+            double width = Math.Max(1, ShelfDropHint.ActualWidth);
+            int index = Math.Clamp((int)(e.GetPosition(ShelfDropHint).X / width * zones.Count), 0, zones.Count - 1);
+            var over = zones[index];
+
+            if (over != dropZone || !shelfDragOver)
             {
-                dropOnLocks = onLocks;
-                LightZone(ShelfZoneOutline, !onLocks);
-                LightZone(LockZoneOutline, onLocks);
+                dropZone = over;
+                LightZone(ShelfZoneOutline, over == DropZone.Shelf);
+                LightZone(LockZoneOutline, over == DropZone.Locks);
             }
         }
 
@@ -229,7 +243,7 @@ namespace Islet
 
             ChooseZones(e);
 
-            if (dropOnLocks && e.Data.GetData(DataFormats.FileDrop) is string[] dropped)
+            if (dropZone == DropZone.Locks && e.Data.GetData(DataFormats.FileDrop) is string[] dropped)
             {
                 SetDragOver(false);
                 ShowLocks(dropped);
