@@ -117,6 +117,16 @@ namespace Islet
                 Save();
         }
 
+        /// <summary>
+        /// Whether a track counts as music for these stats. YouTube videos don't: browsers don't
+        /// say which site is playing, but a video comes with a wide thumbnail and no album, while
+        /// YouTube Music, Spotify Web and the like send a square cover and usually an album.
+        /// </summary>
+        public static bool Counts(TrackInfo track) =>
+            track.Source != MediaSource.Browser ||
+            !string.IsNullOrWhiteSpace(track.Album) ||
+            (track.Artwork != null && ArtworkService.IsSquare(track.Artwork));
+
         public DaySummary For(DateTime when)
         {
             if (!store.Days.TryGetValue(Key(when), out var day))

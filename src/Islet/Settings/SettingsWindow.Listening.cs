@@ -30,7 +30,7 @@ namespace Islet
 
         void BuildListeningPage()
         {
-            Page("Listening", "", "Your last seven days of music: when you listen, and to what. Counted on this PC only.");
+            Page("Listening", "", "Your last seven days of music: when you listen, and to what. Videos aren't counted, and none of it leaves this PC.");
             listeningPage = page;
 
             statsBody = new StackPanel();

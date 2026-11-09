@@ -34,8 +34,9 @@ namespace Islet
             double gap = (now - lastCounted).TotalSeconds;
             lastCounted = now;
 
-            // A long gap means the PC was asleep, not that music played all that time
-            if (track != null && playing && gap > 0 && gap < 5)
+            // A long gap means the PC was asleep, not that music played all that time.
+            // Videos in the browser aren't music, so they aren't counted.
+            if (track != null && playing && gap > 0 && gap < 5 && ListeningStats.Counts(track))
                 listening.Add(now, track.Artist, track.Title, TimeSpan.FromSeconds(gap));
 
             AmbientCaption.Text = (Settings.DailyMusicSummary ? ListeningStats.Describe(listening.For(now)) : null)

@@ -170,6 +170,30 @@ namespace Islet.Tests
             Assert.Empty(stats.TopArtists(Evening, 3));
         }
 
+        static System.Windows.Media.Imaging.BitmapSource Image(int width, int height) =>
+            System.Windows.Media.Imaging.BitmapSource.Create(width, height, 96, 96,
+                System.Windows.Media.PixelFormats.Gray8, null, new byte[width * height], width);
+
+        static TrackInfo Track(MediaSource source, string album, System.Windows.Media.Imaging.BitmapSource? art) =>
+            new("Title", "Artist", album, true, art, TimeSpan.Zero, TimeSpan.FromMinutes(3),
+                DateTimeOffset.Now, source, source.ToString(), "chrome");
+
+        [Fact]
+        public void YouTubeVideosDontCountButMusicDoes()
+        {
+            // A YouTube video: wide thumbnail, no album; or no thumbnail yet
+            Assert.False(ListeningStats.Counts(Track(MediaSource.Browser, "", Image(1280, 720))));
+            Assert.False(ListeningStats.Counts(Track(MediaSource.Browser, "", null)));
+
+            // YouTube Music and Spotify Web: a square cover, or an album
+            Assert.True(ListeningStats.Counts(Track(MediaSource.Browser, "", Image(544, 544))));
+            Assert.True(ListeningStats.Counts(Track(MediaSource.Browser, "AM", Image(1280, 720))));
+
+            // The apps always count
+            Assert.True(ListeningStats.Counts(Track(MediaSource.Spotify, "", null)));
+            Assert.True(ListeningStats.Counts(Track(MediaSource.AppleMusic, "", null)));
+        }
+
         [Theory]
         [InlineData(30, "under a minute")]
         [InlineData(45 * 60, "45 min")]
