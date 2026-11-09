@@ -122,6 +122,9 @@ namespace Islet
         string? announcedUpdate;
 
         public NotificationWatcher Notifications => notifications;
+
+        /// <summary>The colour of the current song's cover, for Settings' Album palette.</summary>
+        public Color AlbumAccent => accentColor;
         public UpdateService.Release? AvailableUpdate => availableUpdate;
 
         static AppSettings Settings => AppSettings.Current;

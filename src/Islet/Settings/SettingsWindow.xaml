@@ -3,40 +3,40 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Islet Settings"
         Icon="/Assets/Islet.ico"
-        Width="520"
-        Height="720"
-        MinWidth="440"
-        MinHeight="400"
-        Background="#0B0B0D"
-        Foreground="White"
+        Width="860"
+        Height="660"
+        MinWidth="700"
+        MinHeight="480"
+        Background="{DynamicResource WindowBg}"
+        Foreground="{DynamicResource Text}"
         FontFamily="Segoe UI Variable Text, Segoe UI"
         WindowStartupLocation="CenterScreen"
         TextOptions.TextFormattingMode="Display">
 
     <Window.Resources>
-        <!-- Toggle switch -->
-        <Style x:Key="Switch" TargetType="CheckBox">
+        <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+        <!-- One page in the sidebar -->
+        <Style x:Key="NavItem" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+            <Setter Property="FontSize" Value="13.5"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Margin" Value="0,0,0,2"/>
             <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="CheckBox">
-                        <Grid Background="Transparent">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <ContentPresenter VerticalAlignment="Center" Margin="0,0,12,0"/>
-                            <Border x:Name="Track" Grid.Column="1" Width="40" Height="22"
-                                    CornerRadius="11" Background="#3A3A3C">
-                                <Ellipse x:Name="Knob" Width="18" Height="18" Fill="White"
-                                         HorizontalAlignment="Left" Margin="2,0"/>
-                            </Border>
-                        </Grid>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bg" CornerRadius="10" Background="Transparent" Padding="12,0">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
                         <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource Hover}"/>
+                            </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Track" Property="Background" Value="#30D158"/>
-                                <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right"/>
+                                <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -46,7 +46,7 @@
 
         <!-- Segmented control option -->
         <Style x:Key="Segment" TargetType="RadioButton">
-            <Setter Property="Foreground" Value="#B3FFFFFF"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Focusable" Value="False"/>
@@ -58,11 +58,12 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bg" Property="Background" Value="#22FFFFFF"/>
+                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource Hover}"/>
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Bg" Property="Background" Value="#48484A"/>
-                                <Setter Property="Foreground" Value="White"/>
+                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource AccentSoft}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -82,10 +83,10 @@
                                 <Thumb>
                                     <Thumb.Template>
                                         <ControlTemplate TargetType="Thumb">
-                                            <Border x:Name="T" Background="#40FFFFFF" CornerRadius="3" Width="6"/>
+                                            <Border x:Name="T" Background="{DynamicResource Thumb}" CornerRadius="3" Width="6"/>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="T" Property="Background" Value="#70FFFFFF"/>
+                                                    <Setter TargetName="T" Property="Background" Value="{DynamicResource ThumbHover}"/>
                                                 </Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
@@ -99,26 +100,32 @@
         </Style>
 
         <Style TargetType="TextBox">
-            <Setter Property="Background" Value="#1C1C1E"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="CaretBrush" Value="White"/>
+            <Setter Property="Background" Value="{DynamicResource Control}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+            <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Padding" Value="10,7"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TextBox">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="8">
-                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                        <Border x:Name="Box" Background="{TemplateBinding Background}" CornerRadius="9"
+                                BorderThickness="1" BorderBrush="{DynamicResource Divider}">
+                            <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
                         </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
         <Style x:Key="Pill" TargetType="Button">
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background" Value="#2C2C2E"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+            <Setter Property="Background" Value="{DynamicResource PillBg}"/>
             <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -148,33 +155,120 @@
     </Window.Resources>
 
     <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="232"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
-        <!-- Stays put while the page below scrolls -->
-        <StackPanel Margin="24,20,24,10">
-            <TextBlock Text="Islet"
-                       FontSize="26"
-                       FontWeight="SemiBold"
-                       Margin="0,0,0,4"/>
-            <TextBlock Text="Changes apply instantly."
-                       FontSize="11.5"
-                       Foreground="#8CFFFFFF"
-                       Margin="0,0,0,14"/>
-            <Border x:Name="Tabs"
-                    Background="#242426"
-                    CornerRadius="9"
-                    Padding="1"/>
-        </StackPanel>
+        <!-- ===== Sidebar ===== -->
+        <Border Background="{DynamicResource SidebarBg}"
+                BorderBrush="{DynamicResource Divider}"
+                BorderThickness="0,0,1,0">
+            <DockPanel Margin="14,20,14,16">
+                <StackPanel DockPanel.Dock="Top">
+                    <StackPanel Orientation="Horizontal"
+                                Margin="8,0,0,18">
+                        <Image Source="/Assets/Islet.ico"
+                               Width="30"
+                               Height="30"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <StackPanel Margin="10,0,0,0"
+                                    VerticalAlignment="Center">
+                            <TextBlock Text="Islet"
+                                       FontSize="17"
+                                       FontWeight="SemiBold"/>
+                            <TextBlock x:Name="SidebarVersion"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource TextFaint}"/>
+                        </StackPanel>
+                    </StackPanel>
 
+                    <!-- Search across every page -->
+                    <Grid Margin="0,0,0,14">
+                        <TextBox x:Name="SearchBox"
+                                 Padding="32,7,10,7"
+                                 TextChanged="Search_Changed"/>
+                        <TextBlock Text="&#xE721;"
+                                   FontFamily="{StaticResource IconFont}"
+                                   FontSize="13"
+                                   Foreground="{DynamicResource TextFaint}"
+                                   Margin="12,0,0,0"
+                                   VerticalAlignment="Center"
+                                   IsHitTestVisible="False"/>
+                        <TextBlock x:Name="SearchHint"
+                                   Text="Find a setting"
+                                   FontSize="13"
+                                   Foreground="{DynamicResource TextFaint}"
+                                   Margin="33,0,0,1"
+                                   VerticalAlignment="Center"
+                                   IsHitTestVisible="False"/>
+                    </Grid>
+                </StackPanel>
+
+                <!-- The window's colours, one dot per palette -->
+                <StackPanel DockPanel.Dock="Bottom"
+                            Margin="8,0,0,0">
+                    <TextBlock Text="Palette"
+                               FontSize="11"
+                               Foreground="{DynamicResource TextFaint}"
+                               Margin="0,0,0,8"/>
+                    <StackPanel x:Name="PaletteDots"
+                                Orientation="Horizontal"
+                                Margin="-4,0,0,0"/>
+                    <TextBlock x:Name="PaletteName"
+                               FontSize="11.5"
+                               Foreground="{DynamicResource TextSecondary}"
+                               Margin="0,6,0,12"/>
+                    <TextBlock Text="Changes save as you make them"
+                               FontSize="11"
+                               Foreground="{DynamicResource TextFaint}"/>
+                </StackPanel>
+
+                <!-- The pages, with a highlight that glides to the chosen one -->
+                <Grid>
+                    <Border x:Name="NavHighlight"
+                            Height="40"
+                            CornerRadius="10"
+                            Background="{DynamicResource AccentSoft}"
+                            VerticalAlignment="Top">
+                        <Border.RenderTransform>
+                            <TranslateTransform x:Name="NavHighlightMove"/>
+                        </Border.RenderTransform>
+                        <Border Width="3"
+                                Height="16"
+                                CornerRadius="1.5"
+                                Background="{DynamicResource Accent}"
+                                HorizontalAlignment="Left"
+                                Margin="3,0,0,0"/>
+                    </Border>
+                    <StackPanel x:Name="Nav"/>
+                </Grid>
+            </DockPanel>
+        </Border>
+
+        <!-- ===== The chosen page ===== -->
         <ScrollViewer x:Name="Scroller"
-                      Grid.Row="1"
-                      VerticalScrollBarVisibility="Auto">
-            <ContentControl x:Name="PageHost"
-                            Focusable="False"
-                            Margin="24,4,24,28"/>
+                      Grid.Column="1"
+                      VerticalScrollBarVisibility="Auto"
+                      Focusable="False">
+            <StackPanel x:Name="PageHost"
+                        Margin="36,28,36,36"
+                        MaxWidth="660">
+                <StackPanel.RenderTransform>
+                    <TranslateTransform x:Name="PageMove"/>
+                </StackPanel.RenderTransform>
+
+                <TextBlock x:Name="PageTitle"
+                           FontSize="28"
+                           FontWeight="SemiBold"/>
+                <TextBlock x:Name="PageBlurb"
+                           FontSize="13"
+                           Foreground="{DynamicResource TextSecondary}"
+                           TextWrapping="Wrap"
+                           Margin="0,4,0,18"/>
+                <ContentControl x:Name="PageContent"
+                                Focusable="False"/>
+            </StackPanel>
         </ScrollViewer>
     </Grid>
 </Window>

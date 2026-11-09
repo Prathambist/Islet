@@ -7,7 +7,8 @@ using System.Windows.Media;
 namespace Islet
 {
     /// <summary>
-    /// Settings are applied and saved as soon as they change.
+    /// Settings are applied and saved as soon as they change. Pages sit in a sidebar, with a
+    /// search that finds any setting on any page; the building blocks are in SettingsWindow.Controls.
     /// </summary>
     public partial class SettingsWindow : Window
     {
@@ -15,6 +16,7 @@ namespace Islet
         readonly MainWindow island;
 
         StackPanel appList = null!;
+        int listedApps;
         TextBlock weatherStatus = null!;
         TextBlock spotifyStatus = null!;
         Button connectButton = null!;
@@ -23,17 +25,7 @@ namespace Islet
         TextBlock notifyStatus = null!;
         CancellationTokenSource? connecting;
 
-        // One page per tab; sections are added to whichever page was started last
-        readonly List<(string Name, StackPanel Content)> pages = new();
-        StackPanel page = null!;
-
-        // The tab last looked at, so reopening Settings goes back to it
-        static int lastTab;
-
         static AppSettings Settings => AppSettings.Current;
-
-        static readonly Brush Secondary = new SolidColorBrush(Color.FromArgb(140, 255, 255, 255));
-        static readonly Brush Card = new SolidColorBrush(Color.FromRgb(22, 22, 24));
 
         public SettingsWindow(SpotifyWebApi spotifyWeb, MainWindow island)
         {
@@ -44,9 +36,8 @@ namespace Islet
 
             SourceInitialized += (s, e) =>
             {
-                // Dark title bar on Windows 10 20H1+ / 11
-                int dark = 1;
-                DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, sizeof(int));
+                // A title bar to match the palette, on Windows 10 20H1+ / 11
+                MatchTitleBar();
             };
 
             spotifyWeb.ConnectionChanged += OnConnectionChanged;
@@ -59,7 +50,17 @@ namespace Islet
                 AppSettings.Changed -= OnSettingsChanged;
             };
 
-            Build();
+            SidebarVersion.Text = $"Version {UpdateService.CurrentVersion}";
+            SetUpPalette();
+
+            BuildIslandPage();
+            BuildMusicPage();
+            BuildNotificationsPage();
+            BuildToolsPage();
+            BuildFullscreenPage();
+            BuildAboutPage();
+
+            OpenFirstPage();
         }
 
         void OnConnectionChanged() => Dispatcher.BeginInvoke(new Action(UpdateSpotifyStatus));
@@ -67,19 +68,35 @@ namespace Islet
         // Apps get added to the list while this window is open
         void OnSettingsChanged() => Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (appList.Children.Count != Settings.FullscreenApps.Count)
+            if (listedApps != Settings.FullscreenApps.Count)
                 BuildAppList();
         }));
 
-        void Build()
-        {
-            // ---------- Appearance ----------
-            AddPage("Appearance");
+        // ================= Island =================
 
-            var appearance = Section("Appearance");
-            var performanceNote = Note(PerformanceProfile.For(Settings.Performance).Summary);
-            appearance.Children.Add(Label("Performance"));
-            appearance.Children.Add(Segmented(
+        void BuildIslandPage()
+        {
+            Page("Island", "", "How the island looks, where it sits, and what it shows when nothing's playing.");
+
+            var look = Group("Look");
+
+            ChoiceRow(look, "Theme", null,
+                new[] { "Midnight", "Graphite", "Album tint", "Translucent" },
+                (int)Settings.Theme,
+                i => { Settings.Theme = (IslandTheme)i; Settings.Save(); });
+
+            ChoiceRow(look, "Size", null,
+                new[] { "Small", "Default", "Large" },
+                (int)Settings.Size,
+                i => { Settings.Size = (IslandSize)i; Settings.Save(); });
+
+            ChoiceRow(look, "While music plays", "The island's shape when it isn't open.",
+                new[] { "Pill with bars", "Spinning album art", "Small pill" },
+                (int)Settings.MusicLook,
+                i => { Settings.MusicLook = (MusicLook)i; Settings.Save(); });
+
+            TextBlock performanceNote = null!;
+            ChoiceRow(look, "Performance", PerformanceProfile.For(Settings.Performance).Summary,
                 new[] { "Low", "Medium", "High" },
                 (int)Settings.Performance,
                 i =>
@@ -87,44 +104,20 @@ namespace Islet
                     Settings.Performance = (PerformanceMode)i;
                     Settings.Save();
                     performanceNote.Text = PerformanceProfile.For(Settings.Performance).Summary;
+                },
+                out performanceNote);
+
+            var position = Group("Position");
+            Row(position, "Where it sits", "Hold the island for a second, then drag it anywhere along the top.",
+                PillButton("Move to the centre", () =>
+                {
+                    Settings.IslandX = 0.5;
+                    Settings.Save();
                 }));
-            appearance.Children.Add(performanceNote);
 
-            appearance.Children.Add(Label("Theme"));
-            appearance.Children.Add(Segmented(
-                new[] { "Midnight", "Graphite", "Album tint", "Translucent" },
-                (int)Settings.Theme,
-                i => { Settings.Theme = (IslandTheme)i; Settings.Save(); }));
+            var idle = Group("When nothing is playing");
 
-            appearance.Children.Add(Label("Size"));
-            appearance.Children.Add(Segmented(
-                new[] { "Small", "Default", "Large" },
-                (int)Settings.Size,
-                i => { Settings.Size = (IslandSize)i; Settings.Save(); }));
-
-            appearance.Children.Add(Label("Position"));
-            appearance.Children.Add(Note("Hold the island for a second, then drag it anywhere along the top."));
-
-            var centreButton = PillButton("Move to the centre", () =>
-            {
-                Settings.IslandX = 0.5;
-                Settings.Save();
-            });
-            centreButton.HorizontalAlignment = HorizontalAlignment.Left;
-            centreButton.Margin = new Thickness(0, 6, 0, 0);
-            appearance.Children.Add(centreButton);
-
-            appearance.Children.Add(Label("While music plays"));
-            appearance.Children.Add(Segmented(
-                new[] { "Pill with bars", "Spinning album art", "Small pill" },
-                (int)Settings.MusicLook,
-                i => { Settings.MusicLook = (MusicLook)i; Settings.Save(); }));
-
-            // ---------- Idle ----------
-            var idle = Section("When nothing is playing");
-
-            idle.Children.Add(Label("Idle look"));
-            idle.Children.Add(Segmented(
+            ChoiceRow(idle, "Idle look", null,
                 new[] { "Camera notch", "Hide", "Clock", "Clock + weather", "Circle" },
                 (int)Settings.IdleMode,
                 i =>
@@ -132,17 +125,34 @@ namespace Islet
                     Settings.IdleMode = (IdleMode)i;
                     Settings.Save();
                     _ = island.RefreshWeatherAsync();
-                }));
+                });
 
-            idle.Children.Add(Label("Go idle after Spotify is paused for"));
             int[] delays = { 5, 15, 60, 0 };
-            idle.Children.Add(Segmented(
+            ChoiceRow(idle, "Go idle after the music pauses for", null,
                 new[] { "5 sec", "15 sec", "1 min", "Only when closed" },
                 Math.Max(0, Array.IndexOf(delays, Settings.IdleDelaySeconds)),
-                i => { Settings.IdleDelaySeconds = delays[i]; Settings.Save(); }));
+                i => { Settings.IdleDelaySeconds = delays[i]; Settings.Save(); });
 
-            idle.Children.Add(Label("Weather location"));
-            var cityRow = new DockPanel();
+            Row(idle, "Weather location", null, null, WeatherPicker(), out weatherStatus);
+            weatherStatus.Text = Settings.WeatherLatitude != null
+                ? $"Using {Settings.WeatherCity}. Weather by Open-Meteo."
+                : "Type a city to show weather. Weather by Open-Meteo.";
+            weatherStatus.Visibility = Visibility.Visible;
+
+            SwitchRow(idle, "Fahrenheit", null, Settings.UseFahrenheit, v =>
+            {
+                Settings.UseFahrenheit = v;
+                Settings.Save();
+                _ = island.RefreshWeatherAsync();
+            });
+
+            SwitchRow(idle, "24-hour clock", null, Settings.Use24HourClock,
+                v => { Settings.Use24HourClock = v; Settings.Save(); });
+        }
+
+        FrameworkElement WeatherPicker()
+        {
+            var row = new DockPanel();
             var cityBox = new TextBox { Text = Settings.WeatherCity };
             var setCity = PillButton("Set", async () =>
             {
@@ -184,102 +194,70 @@ namespace Islet
 
             setCity.Margin = new Thickness(8, 0, 0, 0);
             DockPanel.SetDock(setCity, Dock.Right);
-            cityRow.Children.Add(setCity);
-            cityRow.Children.Add(cityBox);
-            idle.Children.Add(cityRow);
+            row.Children.Add(setCity);
+            row.Children.Add(cityBox);
+            return row;
+        }
 
-            weatherStatus = Note(Settings.WeatherLatitude != null
-                ? $"Using {Settings.WeatherCity}. Weather by Open-Meteo."
-                : "Type a city to show weather. Weather by Open-Meteo.");
-            idle.Children.Add(weatherStatus);
+        // ================= Music =================
 
-            idle.Children.Add(Switch("Fahrenheit", Settings.UseFahrenheit, v =>
-            {
-                Settings.UseFahrenheit = v;
-                Settings.Save();
-                _ = island.RefreshWeatherAsync();
-            }));
+        void BuildMusicPage()
+        {
+            Page("Music", "", "Which players the island follows, lyrics and covers, and what happens while you're away.");
 
-            idle.Children.Add(Switch("24-hour clock", Settings.Use24HourClock,
-                v => { Settings.Use24HourClock = v; Settings.Save(); }));
+            var sources = Group("Players the island follows");
+            SwitchRow(sources, "Spotify app", null, Settings.SourceSpotify,
+                v => { Settings.SourceSpotify = v; Settings.Save(); });
+            SwitchRow(sources, "Apple Music app", null, Settings.SourceAppleMusic,
+                v => { Settings.SourceAppleMusic = v; Settings.Save(); });
+            SwitchRow(sources, "Web players in your browser",
+                "Spotify Web, YouTube, YouTube Music, Apple Music on the web and more, in Chrome, Edge, Firefox, Opera or Brave.",
+                Settings.SourceBrowsers, v => { Settings.SourceBrowsers = v; Settings.Save(); });
+            SwitchRow(sources, "Any other app that reports media to Windows",
+                "When several are playing, the island stays on the one it's showing; when that pauses, it switches to whichever is still playing.",
+                Settings.SourceOtherApps, v => { Settings.SourceOtherApps = v; Settings.Save(); });
 
-            // ---------- Music ----------
-            AddPage("Music");
+            var playing = Group("While it plays");
+            SwitchRow(playing, "Synced lyrics", "The current line appears under the song when you open the island. Lyrics by LRCLIB.",
+                Settings.ShowLyrics, v => { Settings.ShowLyrics = v; Settings.Save(); });
+            SwitchRow(playing, "Real covers for music videos",
+                "Video sites only share a video frame, so Islet looks up the song's real cover in Apple's iTunes catalogue.",
+                Settings.FindVideoArt, v => { Settings.FindVideoArt = v; Settings.Save(); });
+            SwitchRow(playing, "Real-time audio visualizer",
+                "The bars follow the actual bass, mids and treble coming out of your speakers. Turn off for a lighter animated pattern.",
+                Settings.RealAudioVisualizer, v => { Settings.RealAudioVisualizer = v; Settings.Save(); });
 
-            var sources = Section("Music sources");
-            sources.Children.Add(Switch("Spotify app", Settings.SourceSpotify,
-                v => { Settings.SourceSpotify = v; Settings.Save(); }));
-            sources.Children.Add(Switch("Apple Music app", Settings.SourceAppleMusic,
-                v => { Settings.SourceAppleMusic = v; Settings.Save(); }));
-            sources.Children.Add(Switch("Web players in your browser", Settings.SourceBrowsers,
-                v => { Settings.SourceBrowsers = v; Settings.Save(); }));
-            sources.Children.Add(Note(
-                "Spotify Web, YouTube, YouTube Music, Apple Music on the web and more, " +
-                "in Chrome, Edge, Firefox, Opera or Brave."));
-            sources.Children.Add(Switch("Any other app that reports media to Windows", Settings.SourceOtherApps,
-                v => { Settings.SourceOtherApps = v; Settings.Save(); }));
-            sources.Children.Add(Note(
-                "When several are playing, the island stays on the one it's showing; " +
-                "when that pauses, it switches to whichever is still playing."));
-
-            var playback = Section("Playback");
-            playback.Children.Add(Switch("Show synced lyrics", Settings.ShowLyrics,
-                v => { Settings.ShowLyrics = v; Settings.Save(); }));
-            playback.Children.Add(Note("The current line appears under the song when you open the island. Lyrics by LRCLIB."));
-
-            playback.Children.Add(Switch("Daily music summary", Settings.DailyMusicSummary,
-                v => { Settings.DailyMusicSummary = v; Settings.Save(); }));
-            playback.Children.Add(Note(
-                "How long you listened today, and to whom, under the clock on the idle island, with a " +
-                "short summary at 9 PM. It's counted on this PC only."));
-
-            playback.Children.Add(Label("Album art screensaver"));
-            int[] screensaverMinutes = { 0, 2, 5, 10 };
-            playback.Children.Add(Segmented(
-                new[] { "Off", "2 min", "5 min", "10 min" },
-                Math.Max(0, Array.IndexOf(screensaverMinutes, Settings.ScreensaverMinutes)),
-                i => { Settings.ScreensaverMinutes = screensaverMinutes[i]; Settings.Save(); }));
-            playback.Children.Add(Note(
-                "When you're away from the PC while music plays, the island grows into a full-screen " +
-                "cover with lyrics. Any key or mouse movement brings you back."));
-
-            playback.Children.Add(Switch("Use album art for music videos", Settings.FindVideoArt,
-                v => { Settings.FindVideoArt = v; Settings.Save(); }));
-            playback.Children.Add(Note(
-                "YouTube and other video sites only share a video frame, so Islet looks up " +
-                "the song's real cover (album or single) in Apple's iTunes catalogue."));
-
-            playback.Children.Add(Switch("Scroll over the island to change volume",
-                Settings.ScrollVolumeEnabled,
-                v => { Settings.ScrollVolumeEnabled = v; Settings.Save(); }));
-
-            playback.Children.Add(Label("Scrolling controls"));
-            playback.Children.Add(Segmented(
+            var volume = Group("Volume");
+            SwitchRow(volume, "Scroll over the island to change volume", null,
+                Settings.ScrollVolumeEnabled, v => { Settings.ScrollVolumeEnabled = v; Settings.Save(); });
+            ChoiceRow(volume, "Scrolling controls",
+                "Player volume changes the app's own level in the Windows mixer. For web players that's the whole browser.",
                 new[] { "Player volume", "System volume" },
                 (int)Settings.ScrollTarget,
-                i => { Settings.ScrollTarget = (ScrollTarget)i; Settings.Save(); }));
+                i => { Settings.ScrollTarget = (ScrollTarget)i; Settings.Save(); });
 
-            playback.Children.Add(Note(
-                "Player volume changes the app's own level in the Windows mixer. For web " +
-                "players that's the whole browser."));
+            var away = Group("Away and summaries");
+            int[] screensaverMinutes = { 0, 2, 5, 10 };
+            ChoiceRow(away, "Album art screensaver",
+                "When you're away while music plays, the island grows into a full-screen cover with lyrics. Any key or mouse movement brings you back.",
+                new[] { "Off", "2 min", "5 min", "10 min" },
+                Math.Max(0, Array.IndexOf(screensaverMinutes, Settings.ScreensaverMinutes)),
+                i => { Settings.ScreensaverMinutes = screensaverMinutes[i]; Settings.Save(); });
+            SwitchRow(away, "Daily music summary",
+                "How long you listened today, and to whom, on the idle island, with a short recap at 9 PM. Counted on this PC only.",
+                Settings.DailyMusicSummary, v => { Settings.DailyMusicSummary = v; Settings.Save(); });
 
-            playback.Children.Add(Switch("Real-time audio visualizer",
-                Settings.RealAudioVisualizer,
-                v => { Settings.RealAudioVisualizer = v; Settings.Save(); }));
+            var account = Group("Spotify account");
+            Row(account, "Like button",
+                "Lets the heart on the music card save songs to your Liked Songs. Spotify needs a free developer app of your own (needs Premium).");
 
-            playback.Children.Add(Note(
-                "Analyses your speakers' output (WASAPI loopback) so the bars follow the " +
-                "actual bass, mids and treble. Turn off for a lighter animated pattern."));
+            var steps = new StackPanel();
+            steps.Children.Add(Note(
+                "1.  Create an app at developer.spotify.com/dashboard, choosing Web API.\n" +
+                "2.  Add the redirect URI  " + SpotifyWebApi.RedirectUri + "\n" +
+                "3.  Paste its Client ID here and press Connect."));
 
-            // ---------- Spotify ----------
-            var account = Section("Spotify account (Like button)");
-            account.Children.Add(Note(
-                "1. Create an app at developer.spotify.com/dashboard (Web API).\n" +
-                "2. Add this Redirect URI:  " + SpotifyWebApi.RedirectUri + "\n" +
-                "3. Paste its Client ID below and press Connect."));
-
-            account.Children.Add(Label("Client ID"));
-            var clientBox = new TextBox { Text = Settings.SpotifyClientId };
+            var clientBox = new TextBox { Text = Settings.SpotifyClientId, Margin = new Thickness(0, 10, 0, 0) };
             clientBox.LostFocus += (s, e) =>
             {
                 if (clientBox.Text.Trim() == Settings.SpotifyClientId)
@@ -290,9 +268,9 @@ namespace Islet
                 Settings.Save();
                 UpdateSpotifyStatus();
             };
-            account.Children.Add(clientBox);
+            steps.Children.Add(clientBox);
+            Row(account, "Client ID", null, null, steps);
 
-            var connectRow = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
             connectButton = PillButton("Connect", async () =>
             {
                 Settings.SpotifyClientId = clientBox.Text.Trim();
@@ -331,45 +309,17 @@ namespace Islet
                 UpdateSpotifyStatus();
             });
 
-            DockPanel.SetDock(connectButton, Dock.Left);
-            connectRow.Children.Add(connectButton);
-            spotifyStatus = Note("");
-            spotifyStatus.Margin = new Thickness(12, 0, 0, 0);
-            spotifyStatus.VerticalAlignment = VerticalAlignment.Center;
-            connectRow.Children.Add(spotifyStatus);
-            account.Children.Add(connectRow);
-
+            Row(account, "Connection", " ", connectButton, null, out spotifyStatus);
             UpdateSpotifyStatus();
+        }
 
-            // ---------- Notifications ----------
-            AddPage("Notifications");
+        // ================= Notifications =================
 
-            var notify = Section("Message notifications");
-            notify.Children.Add(Note(
-                "New messages drop out of the island for a few seconds; click one to open the chat. " +
-                "Works with the desktop apps, and with WhatsApp Web / Messenger installed as an app " +
-                "from your browser (menu > Install app)."));
-            notify.Children.Add(Switch("Discord", Settings.NotifyDiscord,
-                v => { Settings.NotifyDiscord = v; Settings.Save(); UpdateNotifyStatus(); }));
-            notify.Children.Add(Switch("WhatsApp", Settings.NotifyWhatsApp,
-                v => { Settings.NotifyWhatsApp = v; Settings.Save(); UpdateNotifyStatus(); }));
-            notify.Children.Add(Switch("Messenger", Settings.NotifyMessenger,
-                v => { Settings.NotifyMessenger = v; Settings.Save(); UpdateNotifyStatus(); }));
-            notify.Children.Add(Switch("Other notifications from your browser", Settings.NotifyBrowsers,
-                v => { Settings.NotifyBrowsers = v; Settings.Save(); UpdateNotifyStatus(); }));
-            notify.Children.Add(Note(
-                "Windows doesn't tell apps which website a browser tab's notification came from, " +
-                "so sites open in a normal tab show up under the browser's name."));
-            notify.Children.Add(Switch("Show message text", Settings.NotifyShowMessage,
-                v => { Settings.NotifyShowMessage = v; Settings.Save(); }));
+        void BuildNotificationsPage()
+        {
+            Page("Notifications", "", "Messages that drop out of the island, quiet times, and what else it shows.");
 
-            notify.Children.Add(Switch("Hold messages while Windows' Do Not Disturb is on", Settings.FollowDoNotDisturb,
-                v => { Settings.FollowDoNotDisturb = v; Settings.Save(); }));
-            notify.Children.Add(Note(
-                "Like a focus session: messages wait quietly, then arrive as one summary when you turn " +
-                "Do Not Disturb off. Click the summary to see them."));
-
-            var accessRow = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
+            var access = Group(null);
             var accessButton = PillButton("Allow access", async () =>
             {
                 await island.Notifications.StartAsync();
@@ -382,132 +332,90 @@ namespace Islet
                         UseShellExecute = true
                     });
             });
-            DockPanel.SetDock(accessButton, Dock.Left);
-            accessRow.Children.Add(accessButton);
-            notifyStatus = Note("");
-            notifyStatus.Margin = new Thickness(12, 0, 0, 0);
-            notifyStatus.VerticalAlignment = VerticalAlignment.Center;
-            accessRow.Children.Add(notifyStatus);
-            notify.Children.Add(accessRow);
+            Row(access, "Permission to read notifications", " ", accessButton, null, out notifyStatus);
             UpdateNotifyStatus();
 
-            var onIsland = Section("On the island");
-            onIsland.Children.Add(Switch("Show volume, brightness and device changes on the island",
-                Settings.ShowSystemStatus,
-                v => { Settings.ShowSystemStatus = v; Settings.Save(); }));
+            var messages = Group("Messages");
+            SwitchRow(messages, "Discord", null, Settings.NotifyDiscord,
+                v => { Settings.NotifyDiscord = v; Settings.Save(); UpdateNotifyStatus(); });
+            SwitchRow(messages, "WhatsApp", "The desktop app, or WhatsApp Web installed from your browser (menu > Install app).", Settings.NotifyWhatsApp,
+                v => { Settings.NotifyWhatsApp = v; Settings.Save(); UpdateNotifyStatus(); });
+            SwitchRow(messages, "Messenger", null, Settings.NotifyMessenger,
+                v => { Settings.NotifyMessenger = v; Settings.Save(); UpdateNotifyStatus(); });
+            SwitchRow(messages, "Other notifications from your browser",
+                "Windows doesn't say which website a browser tab's notification came from, so these show under the browser's name.",
+                Settings.NotifyBrowsers, v => { Settings.NotifyBrowsers = v; Settings.Save(); UpdateNotifyStatus(); });
+            SwitchRow(messages, "Show message text", "Off shows only who it's from.", Settings.NotifyShowMessage,
+                v => { Settings.NotifyShowMessage = v; Settings.Save(); });
 
-            onIsland.Children.Add(Switch("Show a dot beside the island while an app uses the mic or camera",
-                Settings.ShowPrivacyDots,
-                v => { Settings.ShowPrivacyDots = v; Settings.Save(); }));
+            var quiet = Group("Quiet times");
+            SwitchRow(quiet, "Hold messages while Windows' Do Not Disturb is on",
+                "Like a focus session: messages wait quietly, then arrive as one summary when Do Not Disturb turns off.",
+                Settings.FollowDoNotDisturb, v => { Settings.FollowDoNotDisturb = v; Settings.Save(); });
 
-            onIsland.Children.Add(Switch("Use the island instead of the Windows volume pop-up",
-                Settings.ReplaceVolumePopup,
-                v => { Settings.ReplaceVolumePopup = v; Settings.Save(); }));
+            var onIsland = Group("Also on the island");
+            SwitchRow(onIsland, "Volume, brightness and devices", "Changes show on the island in a form that matches its look.",
+                Settings.ShowSystemStatus, v => { Settings.ShowSystemStatus = v; Settings.Save(); });
+            SwitchRow(onIsland, "Use the island instead of the Windows volume pop-up", null,
+                Settings.ReplaceVolumePopup, v => { Settings.ReplaceVolumePopup = v; Settings.Save(); });
+            SwitchRow(onIsland, "Mic and camera dots", "A dot beside the island while an app uses your mic (orange) or camera (green).",
+                Settings.ShowPrivacyDots, v => { Settings.ShowPrivacyDots = v; Settings.Save(); });
+            SwitchRow(onIsland, "Timer sound", "A short sound with the lights when a timer ends.",
+                Settings.TimerSound, v => { Settings.TimerSound = v; Settings.Save(); });
+        }
 
-            onIsland.Children.Add(Switch("Play a sound when the timer ends",
-                Settings.TimerSound,
-                v => { Settings.TimerSound = v; Settings.Save(); }));
+        // ================= Tools =================
 
-            // ---------- Advanced ----------
-            AddPage("Advanced");
+        void BuildToolsPage()
+        {
+            Page("Tools", "", "Things you can do with the island: park files, pick colours, and find what's holding a file open.");
 
-            var general = Section("General");
-            general.Children.Add(Switch("Launch at login", StartupShortcut.IsEnabled,
-                v => StartupShortcut.Set(v)));
-
-            general.Children.Add(Switch("Check for updates automatically", Settings.AutoUpdate,
-                v => { Settings.AutoUpdate = v; Settings.Save(); }));
-
-            var updateRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
-            updateRow.Children.Add(PillButton("Check now", CheckUpdatesAsync));
-
-            installButton = PillButton("Install", async () =>
-            {
-                installButton.IsEnabled = false;
-                updateStatus.Text = "Downloading…";
-                await island.InstallUpdateAsync();
-            });
-            installButton.Margin = new Thickness(8, 0, 0, 0);
-            installButton.Background = new SolidColorBrush(Color.FromRgb(10, 132, 255));
-            installButton.Visibility = island.AvailableUpdate != null ? Visibility.Visible : Visibility.Collapsed;
-            updateRow.Children.Add(installButton);
-
-            var logButton = PillButton("Open log folder", () =>
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            var shelf = Group("File shelf");
+            SwitchRow(shelf, "Keep files dropped on the island",
+                "Drag files onto the island to park them, then drag them out into any app or folder. The shelf remembers where your files are rather than copying them.",
+                Settings.ShelfEnabled, v => { Settings.ShelfEnabled = v; Settings.Save(); });
+            SwitchRow(shelf, "Put new screenshots on the shelf",
+                "Screenshots from Win+Shift+S drop out of the island; drag one straight into a chat.",
+                Settings.CatchScreenshots, v => { Settings.CatchScreenshots = v; Settings.Save(); });
+            Row(shelf, "Shelf folder", "Images and links dropped from a web page are saved here.",
+                PillButton("Open", () =>
                 {
-                    FileName = AppSettings.Folder,
-                    UseShellExecute = true
+                    var folder = System.IO.Path.Combine(AppSettings.Folder, "Shelf");
+                    System.IO.Directory.CreateDirectory(folder);
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = folder, UseShellExecute = true });
                 }));
-            logButton.Margin = new Thickness(8, 0, 0, 0);
-            updateRow.Children.Add(logButton);
-            general.Children.Add(updateRow);
 
-            updateStatus = Note(island.AvailableUpdate is UpdateService.Release r
-                ? $"Version {r.Version} is available (you have {UpdateService.CurrentVersion})."
-                : $"Version {UpdateService.CurrentVersion}.");
-            general.Children.Add(updateStatus);
+            var colours = Group("Colour picker");
+            Row(colours, "Pick a colour", "Or right-click the island. The hex code is copied.",
+                PillButton("Pick", () => island.StartPicking()));
+            SwitchRow(colours, "Keep picked colours beside the island", "Your last 12 colours wait in a small badge right of the island.",
+                Settings.ShowColorPalette, v => { Settings.ShowColorPalette = v; Settings.Save(); });
 
-            // ---------- Full-screen ----------
-            var shelfSection = Section("File shelf");
-            shelfSection.Children.Add(Switch("Keep files dropped on the island", Settings.ShelfEnabled,
-                v => { Settings.ShelfEnabled = v; Settings.Save(); }));
-            shelfSection.Children.Add(Switch("Put new screenshots on the shelf", Settings.CatchScreenshots,
-                v => { Settings.CatchScreenshots = v; Settings.Save(); }));
-            shelfSection.Children.Add(Note(
-                "Screenshots from Win+Shift+S drop out of the island; drag one straight into a chat. This " +
-                "needs the Snipping Tool to save screenshots automatically, which it does unless turned off."));
-            shelfSection.Children.Add(Note(
-                "Drag files onto the island to park them, then drag them out into any app or folder. " +
-                "The shelf remembers where your files are rather than copying them, so they stay " +
-                "where you keep them. Images and links dropped from a web page are saved in the shelf folder."));
+            var locks = Group("Files in use");
+            SwitchRow(locks, "Find out what has a file open",
+                "When Windows won't delete or change a file, drag it onto the island and let go on \"What's using it?\".",
+                Settings.FindFileLocks, v => { Settings.FindFileLocks = v; Settings.Save(); });
+        }
 
-            var shelfFolder = PillButton("Open shelf folder", () =>
-            {
-                var folder = System.IO.Path.Combine(AppSettings.Folder, "Shelf");
-                System.IO.Directory.CreateDirectory(folder);
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = folder, UseShellExecute = true });
-            });
-            shelfFolder.HorizontalAlignment = HorizontalAlignment.Left;
-            shelfFolder.Margin = new Thickness(0, 10, 0, 0);
-            shelfSection.Children.Add(shelfFolder);
+        // ================= Full-screen apps =================
 
-            var locksSection = Section("Files in use");
-            locksSection.Children.Add(Switch("Find out what has a file open", Settings.FindFileLocks,
-                v => { Settings.FindFileLocks = v; Settings.Save(); }));
-            locksSection.Children.Add(Note(
-                "When Windows won't delete or change a file because it's open somewhere, drag it onto the " +
-                "island and let go on \"What's using it?\". The island names the app and can close it."));
+        void BuildFullscreenPage()
+        {
+            Page("Full-screen apps", "", "The island steps aside for games, videos and slide shows. Choose per app here, or from the tray icon while one is full-screen.");
 
-            var colorSection = Section("Colour picker");
-            colorSection.Children.Add(Switch("Keep picked colours beside the island", Settings.ShowColorPalette,
-                v => { Settings.ShowColorPalette = v; Settings.Save(); }));
-            colorSection.Children.Add(Note(
-                "Right-click the island, or use the tray icon, and choose Pick a colour. The colour's " +
-                "hex code is copied, and your last 12 colours wait in a small badge right of the island."));
+            var rule = Group(null);
+            SwitchRow(rule, "Hide the island when an app is full-screen", "Applies to every app set to Default below.",
+                Settings.HideInFullscreen, v => { Settings.HideInFullscreen = v; Settings.Save(); });
 
-            var pickButton = PillButton("Pick a colour", () => island.StartPicking());
-            pickButton.HorizontalAlignment = HorizontalAlignment.Left;
-            pickButton.Margin = new Thickness(0, 10, 0, 0);
-            colorSection.Children.Add(pickButton);
-
-            var fullscreen = Section("Full-screen apps");
-            fullscreen.Children.Add(Switch(
-                "Hide the island when an app is full-screen",
-                Settings.HideInFullscreen,
-                v => { Settings.HideInFullscreen = v; Settings.Save(); }));
-
-            fullscreen.Children.Add(Note(
-                "Override it per app below. Games, videos and slide shows are added " +
-                "automatically the first time they go full-screen. You can also change " +
-                "the rule for the current full-screen app from the tray icon."));
-
-            appList = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
-            fullscreen.Children.Add(appList);
+            var apps = Group("Apps seen full-screen");
+            appList = new StackPanel();
+            apps.Children.Add(appList);
             BuildAppList();
 
-            var addRow = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
+            var add = Group(null);
+            var addRow = new DockPanel();
             var addBox = new TextBox { ToolTip = "Process name, e.g. vlc or chrome" };
-            var addButton = PillButton("Add app", () =>
+            var addButton = PillButton("Add", () =>
             {
                 string name = addBox.Text.Trim();
 
@@ -526,103 +434,59 @@ namespace Islet
             DockPanel.SetDock(addButton, Dock.Right);
             addRow.Children.Add(addButton);
             addRow.Children.Add(addBox);
-            fullscreen.Children.Add(addRow);
-
-            BuildTabs();
-        }
-
-        async Task CheckUpdatesAsync()
-        {
-            updateStatus.Text = "Checking…";
-            var release = await island.CheckForUpdatesNowAsync();
-
-            installButton.Visibility = release != null ? Visibility.Visible : Visibility.Collapsed;
-            updateStatus.Text = release != null
-                ? $"Version {release.Version} is available (you have {UpdateService.CurrentVersion})." +
-                  (UpdateService.CanSelfUpdate ? "" : " This copy wasn't installed by the installer, so Install opens the download page.")
-                : $"You're up to date (version {UpdateService.CurrentVersion}).";
-        }
-
-        void UpdateNotifyStatus()
-        {
-            notifyStatus.Text = island.Notifications.Status switch
-            {
-                Windows.UI.Notifications.Management.UserNotificationListenerAccessStatus.Allowed =>
-                    "Windows lets Islet read notifications.",
-                Windows.UI.Notifications.Management.UserNotificationListenerAccessStatus.Denied =>
-                    "Windows blocked access. Allow it under Privacy & security > Notifications.",
-                _ => "Islet needs permission to read notifications."
-            };
-        }
-
-        void UpdateSpotifyStatus()
-        {
-            bool connected = spotifyWeb.IsConnected;
-            ((TextBlock)connectButton.Content).Text = connected ? "Disconnect" : "Connect";
-            connectButton.Background = connected
-                ? new SolidColorBrush(Color.FromRgb(44, 44, 46))
-                : new SolidColorBrush(Color.FromRgb(30, 215, 96));
-            connectButton.Foreground = connected ? Brushes.White : Brushes.Black;
-            spotifyStatus.Text = connected
-                ? "Connected — the heart saves to your Liked Songs."
-                : "Not connected.";
+            Row(add, "Add an app by name", "Its process name, like vlc or chrome.", null, addRow);
         }
 
         void BuildAppList()
         {
             appList.Children.Clear();
+            listedApps = Settings.FullscreenApps.Count;
 
             if (Settings.FullscreenApps.Count == 0)
             {
-                appList.Children.Add(Note("No full-screen apps seen yet."));
+                appList.Children.Add(new Border
+                {
+                    Padding = new Thickness(16, 14, 16, 14),
+                    Child = Note("None yet. Games, videos and slide shows appear here the first time they go full-screen.")
+                });
                 return;
             }
 
             foreach (var app in Settings.FullscreenApps.OrderBy(a => a.DisplayName))
             {
-                var row = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+                var row = new Grid();
                 row.ColumnDefinitions.Add(new ColumnDefinition());
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
                 var names = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-                names.Children.Add(new TextBlock
-                {
-                    Text = app.DisplayName,
-                    FontSize = 13,
-                    TextTrimming = TextTrimming.CharacterEllipsis
-                });
-                names.Children.Add(new TextBlock
-                {
-                    Text = app.ProcessName + ".exe",
-                    FontSize = 11,
-                    Foreground = Secondary
-                });
+                names.Children.Add(new TextBlock { Text = app.DisplayName, FontSize = 13.5, TextTrimming = TextTrimming.CharacterEllipsis });
+                names.Children.Add(Faded(new TextBlock { Text = app.ProcessName + ".exe", FontSize = 11.5 }));
                 row.Children.Add(names);
 
-                var rule = Segmented(
+                var choice = Segmented(
                     new[] { "Default", "Hide", "Show" },
                     (int)app.Rule,
                     i => { app.Rule = (FullscreenRule)i; Settings.Save(); });
 
-                rule.Margin = new Thickness(8, 0, 4, 0);
-                Grid.SetColumn(rule, 1);
-                row.Children.Add(rule);
+                choice.Margin = new Thickness(12, 0, 4, 0);
+                choice.VerticalAlignment = VerticalAlignment.Center;
+                Grid.SetColumn(choice, 1);
+                row.Children.Add(choice);
 
                 var remove = new Button
                 {
-                    Content = "\uE711",
-                    FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+                    Content = "",
+                    FontFamily = (FontFamily)FindResource("IconFont"),
                     FontSize = 10,
                     Width = 28,
                     Height = 28,
-                    Foreground = Secondary,
-                    Background = Brushes.Transparent,
-                    BorderThickness = new Thickness(0),
                     Cursor = System.Windows.Input.Cursors.Hand,
                     ToolTip = "Forget this app",
                     Template = TransparentTemplate()
                 };
+
+                Faded(remove);
 
                 remove.Click += (s, e) =>
                 {
@@ -634,164 +498,99 @@ namespace Islet
                 Grid.SetColumn(remove, 2);
                 row.Children.Add(remove);
 
-                appList.Children.Add(row);
+                AddToCard(appList, Hoverable(row));
             }
         }
 
-        // ---------- Tabs ----------
+        // ================= About =================
 
-        void AddPage(string name)
+        void BuildAboutPage()
         {
-            page = new StackPanel();
-            pages.Add((name, page));
-        }
+            Page("About", "", "Updates, starting with Windows, and where to find help.");
 
-        // Evenly sized tabs in the same style as the other choices
-        void BuildTabs()
-        {
-            var bar = new System.Windows.Controls.Primitives.UniformGrid { Rows = 1 };
-            string group = Guid.NewGuid().ToString();
+            var updates = Group("Updates");
 
-            for (int i = 0; i < pages.Count; i++)
+            installButton = PillButton("Install", async () =>
             {
-                int index = i;
-                var tab = new RadioButton
-                {
-                    Content = pages[i].Name,
-                    GroupName = group,
-                    FontSize = 12.5,
-                    Style = (Style)FindResource("Segment")
-                };
-
-                tab.Checked += (s, e) => ShowPage(index);
-                bar.Children.Add(tab);
-            }
-
-            Tabs.Child = bar;
-
-            int start = Math.Clamp(lastTab, 0, pages.Count - 1);
-            ((RadioButton)bar.Children[start]).IsChecked = true;
-        }
-
-        void ShowPage(int index)
-        {
-            lastTab = index;
-            PageHost.Content = pages[index].Content;
-            Scroller.ScrollToTop();
-        }
-
-        // ---------- Small UI helpers ----------
-
-        StackPanel Section(string title)
-        {
-            // The first section on a page sits closer to the tabs
-            page.Children.Add(new TextBlock
-            {
-                Text = title.ToUpperInvariant(),
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = Secondary,
-                Margin = new Thickness(4, page.Children.Count == 0 ? 6 : 22, 0, 8)
+                installButton.IsEnabled = false;
+                updateStatus.Text = "Downloading…";
+                await island.InstallUpdateAsync();
             });
+            installButton.Background = new SolidColorBrush(Color.FromRgb(10, 132, 255));
+            installButton.Visibility = island.AvailableUpdate != null ? Visibility.Visible : Visibility.Collapsed;
 
-            var content = new StackPanel();
-            page.Children.Add(new Border
-            {
-                Background = Card,
-                CornerRadius = new CornerRadius(14),
-                Padding = new Thickness(16, 12, 16, 14),
-                Child = content
-            });
+            Row(updates, $"Islet {UpdateService.CurrentVersion}", " ",
+                Buttons(PillButton("Check now", CheckUpdatesAsync), installButton), null, out updateStatus);
+            updateStatus.Text = island.AvailableUpdate is UpdateService.Release r
+                ? $"Version {r.Version} is available."
+                : "Updates are signed, and checked before they're installed.";
 
-            return content;
+            SwitchRow(updates, "Check for updates automatically", "At launch and every 12 hours.",
+                Settings.AutoUpdate, v => { Settings.AutoUpdate = v; Settings.Save(); });
+
+            var windows = Group("Windows");
+            SwitchRow(windows, "Launch at login", null, StartupShortcut.IsEnabled, v => StartupShortcut.Set(v));
+
+            var help = Group("Help");
+            Row(help, "Log", "Errors Islet ran into, for when something misbehaves. Never message contents.",
+                PillButton("Open log folder", () =>
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = AppSettings.Folder,
+                        UseShellExecute = true
+                    })));
+            Row(help, "Islet on GitHub", "Release notes, the source, and where to report a problem.",
+                PillButton("Open", () =>
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "https://github.com/Prathambist/Islet",
+                        UseShellExecute = true
+                    })));
         }
 
-        static TextBlock Label(string text) => new()
+        async Task CheckUpdatesAsync()
         {
-            Text = text,
-            FontSize = 13,
-            Margin = new Thickness(0, 12, 0, 6)
-        };
+            updateStatus.Text = "Checking…";
+            var release = await island.CheckForUpdatesNowAsync();
 
-        static TextBlock Note(string text) => new()
-        {
-            Text = text,
-            FontSize = 11.5,
-            Foreground = Secondary,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 6, 0, 0)
-        };
+            installButton.Visibility = release != null ? Visibility.Visible : Visibility.Collapsed;
+            updateStatus.Text = release != null
+                ? $"Version {release.Version} is available." +
+                  (UpdateService.CanSelfUpdate ? "" : " This copy wasn't installed by the installer, so Install opens the download page.")
+                : "You're up to date.";
+        }
 
-        CheckBox Switch(string text, bool value, Action<bool> changed)
+        void UpdateNotifyStatus()
         {
-            var box = new CheckBox
+            notifyStatus.Text = island.Notifications.Status switch
             {
-                Content = new TextBlock { Text = text, FontSize = 13, TextWrapping = TextWrapping.Wrap },
-                Foreground = Brushes.White,
-                IsChecked = value,
-                Style = (Style)FindResource("Switch"),
-                Margin = new Thickness(0, 8, 0, 2)
+                Windows.UI.Notifications.Management.UserNotificationListenerAccessStatus.Allowed =>
+                    "Allowed. Islet can see new messages.",
+                Windows.UI.Notifications.Management.UserNotificationListenerAccessStatus.Denied =>
+                    "Windows blocked it. Allow it under Privacy & security > Notifications.",
+                _ => "Islet needs permission to see new messages."
             };
-
-            box.Click += (s, e) => changed(box.IsChecked == true);
-            return box;
         }
 
-        Border Segmented(string[] options, int selected, Action<int> changed)
+        void UpdateSpotifyStatus()
         {
-            var panel = new StackPanel { Orientation = Orientation.Horizontal };
-            string group = Guid.NewGuid().ToString();
+            bool connected = spotifyWeb.IsConnected;
+            ((TextBlock)connectButton.Content).Text = connected ? "Disconnect" : "Connect";
 
-            for (int i = 0; i < options.Length; i++)
+            // Spotify's green to connect; a plain button once connected
+            if (connected)
             {
-                int index = i;
-                var option = new RadioButton
-                {
-                    Content = options[i],
-                    GroupName = group,
-                    IsChecked = i == selected,
-                    Style = (Style)FindResource("Segment")
-                };
-
-                option.Checked += (s, e) => changed(index);
-                panel.Children.Add(option);
+                connectButton.SetResourceReference(BackgroundProperty, "PillBg");
+                connectButton.SetResourceReference(ForegroundProperty, "Text");
             }
-
-            return new Border
+            else
             {
-                Background = new SolidColorBrush(Color.FromRgb(36, 36, 38)),
-                CornerRadius = new CornerRadius(9),
-                Padding = new Thickness(1),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Child = panel
-            };
-        }
-
-        Button PillButton(string text, Action click)
-        {
-            var button = new Button
-            {
-                Content = new TextBlock { Text = text },
-                Style = (Style)FindResource("Pill")
-            };
-
-            button.Click += (s, e) => click();
-            return button;
-        }
-
-        Button PillButton(string text, Func<Task> click) =>
-            PillButton(text, () => { _ = click(); });
-
-        static ControlTemplate TransparentTemplate()
-        {
-            var template = new ControlTemplate(typeof(Button));
-            var border = new FrameworkElementFactory(typeof(Border));
-            border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
-            border.AppendChild(new FrameworkElementFactory(typeof(ContentPresenter)));
-            border.FirstChild.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
-            border.FirstChild.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
-            template.VisualTree = border;
-            return template;
+                connectButton.Background = new SolidColorBrush(Color.FromRgb(30, 215, 96));
+                connectButton.Foreground = Brushes.Black;
+            }
+            spotifyStatus.Text = connected
+                ? "Connected. The heart saves to your Liked Songs."
+                : "Not connected.";
         }
 
         [DllImport("dwmapi.dll")]

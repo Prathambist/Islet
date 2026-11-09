@@ -72,6 +72,7 @@ namespace Islet
 
         // General
         public bool AutoUpdate { get; set; } = true;
+        public string SettingsPalette { get; set; } = "Graphite";
 
         // Appearance
         public IslandTheme Theme { get; set; } = IslandTheme.Midnight;
