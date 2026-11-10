@@ -95,6 +95,9 @@ namespace Islet
         public bool SourceSpotify { get; set; } = true;
         public bool SourceAppleMusic { get; set; } = true;
         public bool SourceBrowsers { get; set; } = true;
+
+        /// <summary>Videos in the browser (YouTube, Instagram, X…), not just music from the web.</summary>
+        public bool ShowWebVideos { get; set; }
         public bool SourceOtherApps { get; set; }
 
         // Idle / ambient

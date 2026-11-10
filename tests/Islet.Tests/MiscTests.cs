@@ -52,6 +52,32 @@ public class UpdateServiceTests
     }
 
     [Fact]
+    public void Release_notes_come_out_as_plain_lines()
+    {
+        var notes = UpdateService.NotesFromMarkdown(string.Join("LF",
+            "## What's Changed", "", "* **Listening** page with [charts](https://x)", "- Fix the screensaver by @someone in https://github.com/x/pull/3",
+            "1. Faster startup", "", "**Full Changelog**: https://github.com/x/compare/v1...v2").Replace("LF", "\n"));
+
+        Assert.Equal(new[] { "Listening page with charts", "Fix the screensaver", "Faster startup" }, notes);
+        Assert.Empty(UpdateService.NotesFromMarkdown("**Full Changelog**: https://github.com/x/compare/v1...v2"));
+        Assert.Empty(UpdateService.NotesFromMarkdown(null));
+    }
+
+    [Fact]
+    public void Commit_titles_become_notes_newest_first()
+    {
+        var compare = JsonDocument.Parse("""
+        { "commits": [
+          { "commit": { "message": "Add Listening page" } },
+          { "commit": { "message": "Merge branch 'main'" } },
+          { "commit": { "message": "Steady screensaver layoutLFLFLonger explanation" } }
+        ] }
+        """.Replace("LF", "\\n")).RootElement;
+
+        Assert.Equal(new[] { "Steady screensaver layout", "Add Listening page" }, UpdateService.NotesFromCommits(compare));
+    }
+
+    [Fact]
     public void Ignores_pre_release_style_tags_and_missing_zips()
     {
         Assert.Null(UpdateService.ParseRelease(Release("v1.2.0-beta"), Installed));

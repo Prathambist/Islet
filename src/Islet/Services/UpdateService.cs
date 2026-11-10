@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 
 namespace Islet
@@ -14,7 +15,14 @@ namespace Islet
     {
         const string Repo = "Prathambist/Islet";
 
-        public sealed record Release(Version Version, string Tag, string ZipUrl, string PageUrl, string SignatureUrl);
+        public sealed record Release(Version Version, string Tag, string ZipUrl, string PageUrl, string SignatureUrl)
+        {
+            /// <summary>What changed, a line each: the release's own notes, or else its commits' titles.</summary>
+            public IReadOnlyList<string> Notes { get; init; } = Array.Empty<string>();
+        }
+
+        /// <summary>At most this many lines of notes are shown.</summary>
+        public const int NotesShown = 8;
 
         static readonly HttpClient http = CreateClient();
 
@@ -50,13 +58,84 @@ namespace Islet
                 using var doc = JsonDocument.Parse(await http.GetStringAsync(
                     $"https://api.github.com/repos/{Repo}/releases/latest"));
 
-                return ParseRelease(doc.RootElement, CurrentVersion);
+                var release = ParseRelease(doc.RootElement, CurrentVersion);
+
+                // Releases here usually only link to the full changelog; the commits say what changed
+                if (release != null && release.Notes.Count == 0)
+                    release = release with { Notes = await CommitNotesAsync(release.Tag) };
+
+                return release;
             }
             catch (Exception ex)
             {
                 Log.Error("Update check failed", ex);
                 return null;
             }
+        }
+
+        static async Task<IReadOnlyList<string>> CommitNotesAsync(string tag)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(await http.GetStringAsync(
+                    $"https://api.github.com/repos/{Repo}/compare/v{CurrentVersion}...{Uri.EscapeDataString(tag)}"));
+
+                return NotesFromCommits(doc.RootElement);
+            }
+            catch (Exception ex)
+            {
+                // A build that isn't a release has no tag to compare from; the notes are just left out
+                Log.Info($"No commit notes for {tag}: {ex.Message}");
+                return Array.Empty<string>();
+            }
+        }
+
+        /// <summary>The first line of each commit in a GitHub compare response, newest first, merges left out.</summary>
+        internal static IReadOnlyList<string> NotesFromCommits(JsonElement compare)
+        {
+            if (!compare.TryGetProperty("commits", out var commits) || commits.ValueKind != JsonValueKind.Array)
+                return Array.Empty<string>();
+
+            return commits.EnumerateArray()
+                .Select(c => c.GetProperty("commit").GetProperty("message").GetString() ?? "")
+                .Select(m => m.Split('\n')[0].Trim())
+                .Where(m => m.Length > 0 && !m.StartsWith("Merge ", StringComparison.Ordinal))
+                .Reverse()
+                .Distinct()
+                .Take(NotesShown)
+                .ToList();
+        }
+
+        /// <summary>
+        /// A release's own notes as plain lines: headings, bullets, bold and links stripped, and the
+        /// "Full Changelog" link GitHub adds left out.
+        /// </summary>
+        internal static IReadOnlyList<string> NotesFromMarkdown(string? body)
+        {
+            if (string.IsNullOrWhiteSpace(body))
+                return Array.Empty<string>();
+
+            var lines = new List<string>();
+
+            foreach (var raw in body.Split('\n'))
+            {
+                string line = raw.Trim();
+
+                if (line.Length == 0 || line.StartsWith('#') || line.Contains("Full Changelog", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                line = Regex.Replace(line, @"^([-*+]|\d+\.)\s+", "");
+                line = Regex.Replace(line, @"\[([^\]]*)\]\([^)]*\)", "$1");
+                line = line.Replace("**", "").Replace("__", "").Replace("`", "");
+
+                // GitHub's generated notes: "Fix something by @someone in https://…"
+                line = Regex.Replace(line, @"\s+by @\S+ in https?://\S+$", "");
+
+                if (line.Length > 0)
+                    lines.Add(line);
+            }
+
+            return lines.Take(NotesShown).ToList();
         }
 
         /// <summary>
@@ -104,7 +183,10 @@ namespace Islet
                 root.TryGetProperty("html_url", out var page) && page.GetString() is string pageUrl
                     ? pageUrl
                     : $"https://github.com/{Repo}/releases/latest",
-                signature);
+                signature)
+            {
+                Notes = NotesFromMarkdown(root.TryGetProperty("body", out var body) ? body.GetString() : null)
+            };
         }
 
         /// <summary>

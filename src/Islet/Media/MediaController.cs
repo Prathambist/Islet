@@ -69,6 +69,22 @@ namespace Islet
         byte[]? artworkBytes;
         volatile bool artworkDirty = true;
 
+        // What's known of each browser player, to keep previews and feed clips off the island
+        sealed class Seen
+        {
+            public DateTime? PlayingSince;
+            public string? Title;
+            public string Album = "";
+            public bool Music;
+            public bool CoverSeen;
+            public bool OnScreen;
+            public bool Accepted;
+            public bool Looking;
+        }
+
+        readonly Dictionary<GlobalSystemMediaTransportControlsSession, Seen> seen = new();
+        DateTime nextLook = DateTime.MaxValue;
+
         public GlobalSystemMediaTransportControlsSession? Session
         {
             get;
@@ -219,7 +235,8 @@ namespace Islet
                         s.PlaybackInfoChanged += OnAnyPlaybackChanged;
                 }
 
-                var session = PickSession(sessions, IsPlaying, wiredSession, manager.GetCurrentSession());
+                var held = HeldBack(sessions);
+                var session = PickSession(sessions.Except(held).ToList(), IsPlaying, wiredSession, manager.GetCurrentSession());
 
                 changed = session != wiredSession;
 
@@ -253,7 +270,144 @@ namespace Islet
             return Task.FromResult(Session != null);
         }
 
-        public async Task<TrackInfo?> GetTrackAsync()
+        // Browser players not to show yet: see BrowserPreviews. Called under the lock.
+        List<GlobalSystemMediaTransportControlsSession> HeldBack(List<GlobalSystemMediaTransportControlsSession> sessions)
+        {
+            var now = DateTime.UtcNow;
+            var held = new List<GlobalSystemMediaTransportControlsSession>();
+
+            foreach (var gone in seen.Keys.Except(sessions).ToList())
+                seen.Remove(gone);
+
+            foreach (var s in sessions)
+            {
+                var (source, _, process) = Identify(s.SourceAppUserModelId);
+
+                if (source != MediaSource.Browser)
+                    continue;
+
+                if (!seen.TryGetValue(s, out var info))
+                    seen[s] = info = new Seen();
+
+                info.PlayingSince = IsPlaying(s) ? info.PlayingSince ?? now : null;
+                _ = LookAsync(s, info, process);
+
+                // Until its title is known, it waits
+                TimeSpan? playedFor = now - info.PlayingSince;
+
+                // Videos aren't shown at all unless asked for
+                bool allowed = info.Music || AppSettings.Current.ShowWebVideos;
+
+                if (info.Title != null && allowed && !BrowserPreviews.Holds(source, info.Album, info.Accepted, playedFor, info.OnScreen))
+                {
+                    info.Accepted = true;
+                    continue;
+                }
+
+                held.Add(s);
+
+                // Looked at again when it has played long enough, without waiting for the next poll
+                if (playedFor is TimeSpan played && info.Title != null && allowed)
+                    LookAgainAt(now + BrowserPreviews.NextLook(played, info.OnScreen));
+            }
+
+            return held;
+        }
+
+        void LookAgainAt(DateTime when)
+        {
+            if (when >= nextLook && nextLook > DateTime.UtcNow)
+                return;
+
+            nextLook = when;
+
+            _ = Task.Delay(when - DateTime.UtcNow + TimeSpan.FromMilliseconds(100)).ContinueWith(_ =>
+            {
+                lock (sync)
+                    nextLook = DateTime.MaxValue;
+
+                return RefreshAsync();
+            });
+        }
+
+        // Reads a browser player's title, and whether it's the page on screen, off the lock
+        async Task LookAsync(GlobalSystemMediaTransportControlsSession session, Seen info, string process)
+        {
+            if (info.Looking)
+                return;
+
+            info.Looking = true;
+
+            try
+            {
+                var media = await session.TryGetMediaPropertiesAsync();
+
+                if (await LearnAsync(session, info, media, process))
+                    await RefreshAsync();
+            }
+            catch (Exception ex)
+            {
+                Log.Info("Couldn't read a browser player: " + ex.Message);
+            }
+            finally
+            {
+                info.Looking = false;
+            }
+        }
+
+        /// <summary>
+        /// Takes in what a browser player is playing now. A new title that isn't the page on screen
+        /// starts its wait afresh, even in a tab shown before: hovering over videos on YouTube's
+        /// home page plays them in the same tab as the video watched earlier. True if anything changed.
+        /// </summary>
+        async Task<bool> LearnAsync(GlobalSystemMediaTransportControlsSession session, Seen info, GlobalSystemMediaTransportControlsSessionMediaProperties media, string process)
+        {
+            string title = media.Title ?? "", album = media.AlbumTitle ?? "", artist = media.Artist ?? "";
+            bool onScreen = BrowserPreviews.TitleOnScreen(process, title);
+
+            // Music or a video; the cover's shape only matters, and is only read, for a new song
+            // with an artist but no album
+            // (browsers often send the cover a moment after the title, so until one arrives it's asked again)
+            bool music = info.Music;
+            bool coverSeen = info.CoverSeen;
+
+            if (title != info.Title || album != info.Album || (!music && !coverSeen))
+            {
+                music = !string.IsNullOrWhiteSpace(album);
+                coverSeen = false;
+
+                if (!music && !string.IsNullOrWhiteSpace(artist))
+                {
+                    var bytes = await ReadImageAsync(media.Thumbnail);
+                    var cover = bytes == null ? null : DecodeImage(bytes);
+                    coverSeen = cover != null;
+                    music = BrowserPreviews.IsMusic(artist, album, cover != null && ArtworkService.IsSquare(cover));
+                }
+            }
+
+            lock (sync)
+            {
+                bool newTitle = info.Title != null && info.Title != title;
+                bool changed = info.Title != title || info.Album != album || info.OnScreen != onScreen || info.Music != music;
+                info.Music = music;
+                info.CoverSeen = coverSeen;
+
+                if (newTitle && !onScreen && string.IsNullOrWhiteSpace(album))
+                {
+                    info.Accepted = false;
+                    info.PlayingSince = info.PlayingSince == null ? null : DateTime.UtcNow;
+                }
+
+                info.Title = title;
+                info.Album = album;
+                info.OnScreen = onScreen;
+                return changed;
+            }
+        }
+
+        public async Task<TrackInfo?> GetTrackAsync() => await GetTrackAsync(lookAgain: true);
+
+        async Task<TrackInfo?> GetTrackAsync(bool lookAgain)
         {
             if (Session == null && !await RefreshAsync())
                 return null;
@@ -264,6 +418,20 @@ namespace Islet
             var playback = session.GetPlaybackInfo();
             var timeline = session.GetTimelineProperties();
             var (source, sourceName, process) = Identify(session.SourceAppUserModelId);
+
+            // The browser tab being shown has moved on to something else, perhaps a preview:
+            // looked at again before it's shown, so a preview's thumbnail never flashes up
+            Seen? info;
+
+            lock (sync)
+                seen.TryGetValue(session, out info);
+
+            if (lookAgain && info != null && info.Title != (media.Title ?? "") &&
+                await LearnAsync(session, info, media, process))
+            {
+                await RefreshAsync();
+                return await GetTrackAsync(lookAgain: false);
+            }
 
             string key = session.SourceAppUserModelId + "|" + media.Title + "|" + media.Artist + "|" + media.AlbumTitle;
 

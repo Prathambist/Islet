@@ -109,7 +109,12 @@ namespace Islet
             };
             coverShadow.Children.Add(coverFrame);
 
-            words.MaxWidth = Math.Min(Width * 0.42, 620);
+            // A fixed width, and room for two lines of each lyric whatever their length, so the
+            // cover and the text stay put as lines come and go
+            words.Width = Math.Min(Width * 0.42, 620);
+            Reserve(lyric, 2);
+            Reserve(nextLyric, 2);
+
             words.Children.Add(title);
             words.Children.Add(artist);
             artist.Margin = new Thickness(0, 6, 0, 0);
@@ -143,6 +148,14 @@ namespace Islet
             clock.VerticalAlignment = VerticalAlignment.Top;
             clock.Margin = new Thickness(0, 36, 48, 0);
             stage.Children.Add(clock);
+        }
+
+        // Always as tall as this many lines, however many the text needs
+        static void Reserve(TextBlock text, int lines)
+        {
+            text.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+            text.LineHeight = Math.Round(text.FontSize * 1.3);
+            text.Height = text.MaxHeight = text.LineHeight * lines;
         }
 
         static TextBlock Text(double size, FontWeight weight, double opacity) => new()

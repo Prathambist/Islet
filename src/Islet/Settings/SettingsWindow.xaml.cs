@@ -21,6 +21,7 @@ namespace Islet
         TextBlock spotifyStatus = null!;
         Button connectButton = null!;
         TextBlock updateStatus = null!;
+        StackPanel updateNotes = null!;
         Button installButton = null!;
         TextBlock notifyStatus = null!;
         CancellationTokenSource? connecting;
@@ -211,9 +212,12 @@ namespace Islet
                 v => { Settings.SourceSpotify = v; Settings.Save(); });
             SwitchRow(sources, "Apple Music app", null, Settings.SourceAppleMusic,
                 v => { Settings.SourceAppleMusic = v; Settings.Save(); });
-            SwitchRow(sources, "Web players in your browser",
-                "Spotify Web, YouTube, YouTube Music, Apple Music on the web and more, in Chrome, Edge, Firefox, Opera or Brave.",
+            SwitchRow(sources, "Music in your browser",
+                "Spotify Web, YouTube Music, SoundCloud, Apple Music on the web and more, in Chrome, Edge, Firefox, Opera or Brave.",
                 Settings.SourceBrowsers, v => { Settings.SourceBrowsers = v; Settings.Save(); });
+            SwitchRow(sources, "Videos on websites",
+                "YouTube, Instagram, X and other videos. Off keeps the island to music; on, a video shows once it has played for a few seconds, so previews and feed clips stay off.",
+                Settings.ShowWebVideos, v => { Settings.ShowWebVideos = v; Settings.Save(); });
             SwitchRow(sources, "Any other app that reports media to Windows",
                 "When several are playing, the island stays on the one it's showing; when that pauses, it switches to whichever is still playing.",
                 Settings.SourceOtherApps, v => { Settings.SourceOtherApps = v; Settings.Save(); });
@@ -517,11 +521,13 @@ namespace Islet
             installButton.Background = new SolidColorBrush(Color.FromRgb(10, 132, 255));
             installButton.Visibility = island.AvailableUpdate != null ? Visibility.Visible : Visibility.Collapsed;
 
+            updateNotes = new StackPanel();
             Row(updates, $"Islet {UpdateService.CurrentVersion}", " ",
-                Buttons(PillButton("Check now", CheckUpdatesAsync), installButton), null, out updateStatus);
+                Buttons(PillButton("Check now", CheckUpdatesAsync), installButton), updateNotes, out updateStatus);
             updateStatus.Text = island.AvailableUpdate is UpdateService.Release r
                 ? $"Version {r.Version} is available."
                 : "Updates are signed, and checked before they're installed.";
+            ShowUpdateNotes(island.AvailableUpdate);
 
             SwitchRow(updates, "Check for updates automatically", "At launch and every 12 hours.",
                 Settings.AutoUpdate, v => { Settings.AutoUpdate = v; Settings.Save(); });
@@ -552,10 +558,46 @@ namespace Islet
             var release = await island.CheckForUpdatesNowAsync();
 
             installButton.Visibility = release != null ? Visibility.Visible : Visibility.Collapsed;
+            ShowUpdateNotes(release);
             updateStatus.Text = release != null
                 ? $"Version {release.Version} is available." +
                   (UpdateService.CanSelfUpdate ? "" : " This copy wasn't installed by the installer, so Install opens the download page.")
                 : "You're up to date.";
+        }
+
+        // What's new in the update found, a short line each, under the update row
+        void ShowUpdateNotes(UpdateService.Release? release)
+        {
+            updateNotes.Children.Clear();
+            updateNotes.Visibility = release is { Notes.Count: > 0 } ? Visibility.Visible : Visibility.Collapsed;
+
+            if (release is not { Notes.Count: > 0 })
+                return;
+
+            updateNotes.Children.Add(new TextBlock
+            {
+                Text = $"What's new in {release.Version}",
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+
+            foreach (string note in release.Notes)
+            {
+                var line = new Grid { Margin = new Thickness(0, 2, 0, 0) };
+                line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
+                line.ColumnDefinitions.Add(new ColumnDefinition());
+
+                var dot = new System.Windows.Shapes.Ellipse { Width = 4, Height = 4, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(2, 7, 0, 0) };
+                dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Accent");
+                line.Children.Add(dot);
+
+                var text = Note(note);
+                Grid.SetColumn(text, 1);
+                line.Children.Add(text);
+
+                updateNotes.Children.Add(line);
+            }
         }
 
         void UpdateNotifyStatus()
