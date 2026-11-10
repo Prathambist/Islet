@@ -380,6 +380,11 @@ namespace Islet
                 {
                     var bytes = await ReadImageAsync(media.Thumbnail);
                     var cover = bytes == null ? null : DecodeImage(bytes);
+                    // A site with no artwork of its own gets its icon, or the browser's, sent instead;
+                    // square, but not a cover
+                    if (cover != null && ArtworkService.LooksLikeIcon(cover))
+                        cover = null;
+
                     coverSeen = cover != null;
                     music = BrowserPreviews.IsMusic(artist, album, cover != null && ArtworkService.IsSquare(cover));
                 }
@@ -458,6 +463,18 @@ namespace Islet
                 }
             }
 
+            // The last word, on exactly what would be shown: browser media that isn't music, or
+            // hasn't been let through yet, never reaches the island, even for the moment between
+            // a clip looping and it being looked at again
+            if (source == MediaSource.Browser && !MayShow(session, media, artwork))
+            {
+                if (!lookAgain)
+                    return null;
+
+                await RefreshAsync();
+                return await GetTrackAsync(lookAgain: false);
+            }
+
             return new TrackInfo(
                 string.IsNullOrWhiteSpace(media.Title)
                     ? UnknownTitle
@@ -494,6 +511,27 @@ namespace Islet
                 playback.Controls.IsShuffleEnabled,
                 playback.Controls.IsRepeatEnabled
             );
+        }
+
+        bool MayShow(GlobalSystemMediaTransportControlsSession session, GlobalSystemMediaTransportControlsSessionMediaProperties media, BitmapSource? cover)
+        {
+            bool music = BrowserPreviews.IsMusic(media.Artist ?? "", media.AlbumTitle ?? "", cover != null && ArtworkService.IsSquare(cover));
+            bool videosToo = AppSettings.Current.ShowWebVideos;
+
+            lock (sync)
+            {
+                if (!seen.TryGetValue(session, out var info))
+                    return false;
+
+                if (!music && !videosToo)
+                {
+                    info.Music = false;
+                    info.Accepted = false;
+                    return false;
+                }
+
+                return info.Accepted;
+            }
         }
 
         public static async Task<BitmapSource?> LoadImageAsync(IRandomAccessStreamReference? thumbnail)
