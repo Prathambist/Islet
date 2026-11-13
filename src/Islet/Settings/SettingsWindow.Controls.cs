@@ -142,6 +142,15 @@ namespace Islet
             return content;
         }
 
+        /// <summary>Shows the page with this name, as if picked in the sidebar.</summary>
+        public void Open(string name)
+        {
+            var wanted = pages.FirstOrDefault(p => p.Name == name);
+
+            if (wanted != null)
+                wanted.Nav.IsChecked = true;
+        }
+
         void OpenFirstPage()
         {
             var start = pages.FirstOrDefault(p => p.Name == lastPage) ?? pages[0];

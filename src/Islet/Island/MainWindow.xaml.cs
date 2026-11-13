@@ -251,7 +251,7 @@ namespace Islet
 
             notifications.Received += EnqueueChat;
             updateTimer.Tick += async (s, e) => await CheckForUpdatesAsync(announce: true);
-            App.SecondInstanceLaunched += OpenSettings;
+            App.SecondInstanceLaunched += () => OpenSettings();
 
             clockTimer.Tick += (s, e) =>
             {
@@ -352,7 +352,7 @@ namespace Islet
             Top = 0;
             ApplyDock(snap: true);
 
-            tray = new TrayIcon(fullscreen, countdown, OpenSettings, () => Close(),
+            tray = new TrayIcon(fullscreen, countdown, () => OpenSettings(), () => Close(),
                 () => availableUpdate, () => _ = InstallUpdateAsync(), StartPicking);
 
             islandScale.Snap(SizeScale);
@@ -1513,7 +1513,7 @@ namespace Islet
 
         SettingsWindow? settingsWindow;
 
-        void OpenSettings()
+        void OpenSettings(string? page = null)
         {
             if (settingsWindow == null)
             {
@@ -1521,6 +1521,9 @@ namespace Islet
                 settingsWindow.Closed += (s, e) => settingsWindow = null;
                 settingsWindow.Show();
             }
+
+            if (page != null)
+                settingsWindow.Open(page);
 
             if (settingsWindow.WindowState == WindowState.Minimized)
                 settingsWindow.WindowState = WindowState.Normal;

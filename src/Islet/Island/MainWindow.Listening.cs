@@ -37,7 +37,8 @@ namespace Islet
             // A long gap means the PC was asleep, not that music played all that time.
             // Only songs count: not videos, clips or other media.
             if (track != null && playing && gap > 0 && gap < 5 && ListeningStats.Counts(track))
-                listening.Add(now, track.Artist, track.Title, TimeSpan.FromSeconds(gap), track.Album, EffectiveArt(track, trackKey));
+                listening.Add(now, track.Artist, track.Title, TimeSpan.FromSeconds(gap), track.Album, EffectiveArt(track, trackKey),
+                    track.SourceName, track.PositionAt(DateTimeOffset.Now));
 
             AmbientCaption.Text = (Settings.DailyMusicSummary ? ListeningStats.Describe(listening.For(now)) : null)
                 ?? "Nothing playing";
@@ -63,23 +64,48 @@ namespace Islet
 
             listening.MarkSummaryShown(now);
 
-            string? song = today.TopSong?.Split(" — ")[0];
+            // On Sundays, the whole week instead of the day
+            bool week = now.DayOfWeek == DayOfWeek.Sunday;
+            var period = week ? listening.Period(now.AddDays(1 - 7), now) : listening.Period(now, now);
+            var song = period.Songs.FirstOrDefault();
+            var artist = period.Artists.FirstOrDefault();
             var detail = new List<string>();
 
-            if (today.TopArtist != null)
-                detail.Add($"Mostly {today.TopArtist}");
+            if (artist != null)
+                detail.Add($"Mostly {artist.Name}");
 
             if (song != null)
-                detail.Add($"top song: {song}");
+                detail.Add($"top song: {song.Name}");
 
             Enqueue(new NotifyItem(
-                "Your day in music",
-                $"{ListeningStats.Duration(today.Total)} of music today",
+                week ? "Your week in music" : "Your day in music",
+                $"{ListeningStats.Duration(period.Total)} of music {(week ? "this week" : "today")}",
                 detail.Count > 0 ? string.Join(" · ", detail) : "Thanks for the company",
-                null,
+                CoverImage(song?.Cover),
                 SummaryBadge,
                 0xE8D6,
-                () => { }));
+                () => OpenSettings("Listening")));
+        }
+
+        static System.Windows.Media.Imaging.BitmapImage? CoverImage(string? file)
+        {
+            if (file == null)
+                return null;
+
+            try
+            {
+                var image = new System.Windows.Media.Imaging.BitmapImage();
+                image.BeginInit();
+                image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                image.UriSource = new Uri(file);
+                image.EndInit();
+                image.Freeze();
+                return image;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         // ================= Screensaver =================

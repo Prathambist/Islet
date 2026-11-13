@@ -98,19 +98,19 @@ namespace Islet.Tests
         }
 
         [Fact]
-        public void KeepsTheLastWeekOnly()
+        public void KeepsFiveWeeks()
         {
             var stats = new ListeningStats(folder, () => Evening);
-            stats.Add(Evening.AddDays(-7), "Old", "A week ago", TimeSpan.FromMinutes(30));
-            stats.Add(Evening.AddDays(-6), "Someone", "Six days ago", TimeSpan.FromMinutes(20));
+            stats.Add(Evening.AddDays(-35), "Old", "Five weeks ago", TimeSpan.FromMinutes(30));
+            stats.Add(Evening.AddDays(-34), "Someone", "Nearly five weeks ago", TimeSpan.FromMinutes(20));
             stats.Add(Evening, "Someone", "Today", TimeSpan.FromMinutes(10));
             stats.Save();
 
             var reopened = new ListeningStats(folder, () => Evening);
 
             Assert.Equal(TimeSpan.FromMinutes(10), reopened.For(Evening).Total);
-            Assert.Equal("Six days ago", reopened.TopSongs(Evening.AddDays(-6), 5).Single().Name);
-            Assert.Empty(reopened.TopSongs(Evening.AddDays(-7), 5));
+            Assert.Equal("Nearly five weeks ago", reopened.TopSongs(Evening.AddDays(-34), 5).Single().Name);
+            Assert.Empty(reopened.TopSongs(Evening.AddDays(-35), 5));
         }
 
         [Fact]
@@ -257,12 +257,131 @@ namespace Islet.Tests
         public void CoversGoWithTheirWeek()
         {
             var stats = new ListeningStats(folder, () => Evening);
-            stats.Add(Evening.AddDays(-7), "Old", "Old song", TimeSpan.FromMinutes(5), "Old album", Image(300, 300));
+            stats.Add(Evening.AddDays(-35), "Old", "Old song", TimeSpan.FromMinutes(5), "Old album", Image(300, 300));
             stats.Add(Evening, "New", "New song", TimeSpan.FromMinutes(5), "New album", Image(300, 300));
             stats.Save();
 
             Assert.Single(Directory.GetFiles(Path.Combine(folder, "covers")));
-            Assert.Equal("New song", stats.Period(Evening.AddDays(-7), Evening).Songs.Single().Name);
+            Assert.Equal("New song", stats.Period(Evening.AddDays(-35), Evening).Songs.Single().Name);
+        }
+
+        [Fact]
+        public void SwitchingAwayEarlyIsASkip()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+            stats.Add(Evening, "A", "Skipped", TimeSpan.FromSeconds(8));
+            stats.Add(Evening, "A", "Kept", TimeSpan.FromMinutes(3));
+            stats.Add(Evening, "A", "Skipped", TimeSpan.FromSeconds(5));
+            stats.Add(Evening, "A", "Kept", TimeSpan.FromMinutes(3));
+
+            // A flick past, under three seconds, isn't one
+            stats.Add(Evening, "A", "Flicked past", TimeSpan.FromSeconds(1));
+            stats.Add(Evening, "A", "Kept", TimeSpan.FromMinutes(1));
+
+            var day = stats.Period(Evening, Evening);
+            Assert.Equal(2, day.Songs.Single(s => s.Name == "Skipped").Skips);
+            Assert.Equal(0, day.Songs.Single(s => s.Name == "Flicked past").Skips);
+            Assert.Equal(0, day.Songs.Single(s => s.Name == "Kept").Skips);
+        }
+
+        [Fact]
+        public void ASongStartingOverIsAnotherPlayInARow()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+
+            // Played three times through: the position goes back to the start each time
+            for (int i = 0; i < 3; i++)
+            {
+                stats.Add(Evening, "SZA", "Snooze", TimeSpan.FromSeconds(1), position: TimeSpan.FromSeconds(1));
+                stats.Add(Evening, "SZA", "Snooze", TimeSpan.FromSeconds(100), position: TimeSpan.FromSeconds(101));
+                stats.Add(Evening, "SZA", "Snooze", TimeSpan.FromSeconds(100), position: TimeSpan.FromSeconds(201));
+            }
+
+            stats.Add(Evening, "SZA", "Kill Bill", TimeSpan.FromMinutes(2));
+            stats.Add(Evening, "SZA", "Snooze", TimeSpan.FromMinutes(2));
+
+            var snooze = stats.Period(Evening, Evening).Songs.Single(s => s.Name == "Snooze");
+            Assert.Equal(4, snooze.Plays);
+            Assert.Equal(3, snooze.Streak);
+        }
+
+        [Fact]
+        public void KeepsTheLongestSessionAndWherePlayingCameFrom()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+            var start = Evening.Date.AddHours(20);
+
+            // Forty minutes with short pauses, a long break, then ten more
+            for (int m = 1; m <= 40; m++)
+                stats.Add(start.AddMinutes(m * 1.05), "A", "Song", TimeSpan.FromMinutes(1), source: "Spotify");
+
+            stats.Add(start.AddHours(2), "A", "Song", TimeSpan.FromMinutes(10), source: "Chrome");
+
+            var day = stats.Period(Evening, Evening);
+            Assert.Equal(TimeSpan.FromMinutes(40), day.LongestSession);
+            Assert.Equal(20, day.LongestSessionStart!.Value.Hour);
+            Assert.Equal(new[] { ("Spotify", TimeSpan.FromMinutes(40)), ("Chrome", TimeSpan.FromMinutes(10)) }, day.Sources);
+        }
+
+        [Fact]
+        public void TellsWhatsNewOnceItHasBeenCountingAWhile()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+            stats.Add(Evening.AddDays(-10), "Arctic Monkeys", "505", TimeSpan.FromMinutes(5));
+            stats.Add(Evening, "Arctic Monkeys", "505", TimeSpan.FromMinutes(5));
+            stats.Add(Evening, "Arctic Monkeys", "Arabella", TimeSpan.FromMinutes(5));
+            stats.Add(Evening, "Tame Impala", "Let It Happen", TimeSpan.FromMinutes(5));
+
+            var today = stats.Period(Evening, Evening);
+            Assert.False(today.Songs.Single(s => s.Name == "505").IsNew);
+            Assert.True(today.Songs.Single(s => s.Name == "Arabella").IsNew);
+            Assert.True(today.Artists.Single(a => a.Name == "Tame Impala").IsNew);
+            Assert.False(today.Artists.Single(a => a.Name == "Arctic Monkeys").IsNew);
+            Assert.Equal(Evening.Date.AddDays(-10), today.Songs.Single(s => s.Name == "505").FirstHeard);
+
+            // On the first day counted nothing is new, or everything would be
+            Assert.False(stats.Period(Evening.AddDays(-10), Evening.AddDays(-10)).Songs.Single().IsNew);
+        }
+
+        [Fact]
+        public void GivesASongsArtistsAndAlbumsDays()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+            stats.Add(Evening.AddDays(-1), "Frank Ocean", "Nights", TimeSpan.FromMinutes(5), "Blonde");
+            stats.Add(Evening, "Frank Ocean", "Nights", TimeSpan.FromMinutes(5), "Blonde");
+            stats.Add(Evening, "Frank Ocean", "Ivy", TimeSpan.FromMinutes(4), "Blonde");
+
+            var week = stats.Period(Evening.AddDays(-6), Evening);
+            var nights = stats.History(week.Songs.Single(s => s.Name == "Nights"), Evening, 3);
+            var artist = stats.History(week.Artists.Single(), Evening, 3);
+            var album = stats.History(week.Albums.Single(), Evening, 3);
+
+            Assert.Equal(new[] { TimeSpan.Zero, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5) }, nights.Select(d => d.Time));
+            Assert.Equal(TimeSpan.FromMinutes(9), artist[2].Time);
+            Assert.Equal(TimeSpan.FromMinutes(9), album[2].Time);
+            Assert.Equal("Blonde", week.Songs[0].Album);
+        }
+
+        [Fact]
+        public void MakesARecapPicture()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+            stats.Add(Evening, "Arctic Monkeys", "505", TimeSpan.FromMinutes(5), "Favourite Worst Nightmare", Image(300, 300));
+
+            var period = stats.Period(Evening, Evening);
+            int width = 0, height = 0;
+
+            // WPF drawing needs an STA thread
+            var thread = new Thread(() =>
+            {
+                var picture = ListeningRecap.Render(period, "My day in music", "Monday 9 November", _ => null);
+                (width, height) = (picture.PixelWidth, picture.PixelHeight);
+            });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            thread.Join();
+
+            Assert.Equal((1080, 1350), (width, height));
         }
 
         [Theory]
