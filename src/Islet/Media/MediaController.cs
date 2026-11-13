@@ -34,7 +34,11 @@ namespace Islet
         bool? Shuffle = null,
         MediaPlaybackAutoRepeatMode? Repeat = null,
         bool CanShuffle = false,
-        bool CanRepeat = false)
+        bool CanRepeat = false,
+        string? Site = null,
+        bool VideoClip = false,
+        bool Mix = false,
+        bool Edited = false)
     {
         /// <summary>Where playback is now; players only report it now and then.</summary>
         public TimeSpan PositionAt(DateTimeOffset now) =>
@@ -80,6 +84,16 @@ namespace Islet
             public bool OnScreen;
             public bool Accepted;
             public bool Looking;
+            public DateTime LookedAt;
+
+            // A music video taken as the song it is
+            public ArtworkService.SongFromVideo? Song;
+
+            // The site playing in this tab, once its title has said
+            public string? Site;
+
+            // A mix, full album or long set: shown as it is, never counted as one song
+            public bool Mix;
         }
 
         readonly Dictionary<GlobalSystemMediaTransportControlsSession, Seen> seen = new();
@@ -298,7 +312,7 @@ namespace Islet
                 // Videos aren't shown at all unless asked for
                 bool allowed = info.Music || AppSettings.Current.ShowWebVideos;
 
-                if (info.Title != null && allowed && !BrowserPreviews.Holds(source, info.Album, info.Accepted, playedFor, info.OnScreen))
+                if (info.Title != null && allowed && !BrowserPreviews.Holds(source, info.Album, info.Accepted, playedFor, info.OnScreen, info.Song != null))
                 {
                     info.Accepted = true;
                     continue;
@@ -333,16 +347,18 @@ namespace Islet
         // Reads a browser player's title, and whether it's the page on screen, off the lock
         async Task LookAsync(GlobalSystemMediaTransportControlsSession session, Seen info, string process)
         {
-            if (info.Looking)
+            // Reading every browser window's title on each playback event is more than needed
+            if (info.Looking || DateTime.UtcNow - info.LookedAt < TimeSpan.FromSeconds(1.5))
                 return;
 
             info.Looking = true;
+            info.LookedAt = DateTime.UtcNow;
 
             try
             {
                 var media = await session.TryGetMediaPropertiesAsync();
 
-                if (await LearnAsync(session, info, media, process))
+                if (media != null && await LearnAsync(session, info, media, process))
                     await RefreshAsync();
             }
             catch (Exception ex)
@@ -363,18 +379,24 @@ namespace Islet
         async Task<bool> LearnAsync(GlobalSystemMediaTransportControlsSession session, Seen info, GlobalSystemMediaTransportControlsSessionMediaProperties media, string process)
         {
             string title = media.Title ?? "", album = media.AlbumTitle ?? "", artist = media.Artist ?? "";
-            bool onScreen = BrowserPreviews.TitleOnScreen(process, title);
+            string? window = BrowserPreviews.WindowTitleWith(process, title);
+            bool onScreen = window != null;
+            string? site = (window != null ? BrowserPreviews.SiteOf(window, artist) : null) ?? info.Site;
 
             // Music or a video; the cover's shape only matters, and is only read, for a new song
             // with an artist but no album
             // (browsers often send the cover a moment after the title, so until one arrives it's asked again)
             bool music = info.Music;
             bool coverSeen = info.CoverSeen;
+            var song = title == info.Title ? info.Song : null;
+            bool mix = title == info.Title && info.Mix;
 
             if (title != info.Title || album != info.Album || (!music && !coverSeen))
             {
                 music = !string.IsNullOrWhiteSpace(album);
                 coverSeen = false;
+                song = null;
+                mix = false;
 
                 if (!music && !string.IsNullOrWhiteSpace(artist))
                 {
@@ -388,6 +410,24 @@ namespace Islet
                     coverSeen = cover != null;
                     music = BrowserPreviews.IsMusic(artist, album, cover != null && ArtworkService.IsSquare(cover));
                 }
+
+                var timeline = session.GetTimelineProperties();
+                mix = !music && AppSettings.Current.MusicVideosAsSongs &&
+                      BrowserPreviews.LooksLikeMix(artist, title, timeline.EndTime - timeline.StartTime);
+
+                if (mix)
+                    music = true;
+
+                // A music video, lyric video or audio upload on YouTube is the song it is, once the
+                // catalogs confirm that song exists; any other video stays a video
+                if (!music && AppSettings.Current.MusicVideosAsSongs && BrowserPreviews.LooksLikeMusicVideo(artist, title))
+                {
+                    song = await ArtworkService.SongFromVideoAsync(artist, title);
+                    music = song != null;
+
+                    // The catalogs couldn't be asked: asked again on the next look
+                    coverSeen = song != null;
+                }
             }
 
             lock (sync)
@@ -396,6 +436,9 @@ namespace Islet
                 bool changed = info.Title != title || info.Album != album || info.OnScreen != onScreen || info.Music != music;
                 info.Music = music;
                 info.CoverSeen = coverSeen;
+                info.Song = song;
+                info.Mix = mix;
+                info.Site = song != null || mix ? site ?? "YouTube" : site;
 
                 if (newTitle && !onScreen && string.IsNullOrWhiteSpace(album))
                 {
@@ -420,6 +463,11 @@ namespace Islet
             var session = Session!;
 
             var media = await session.TryGetMediaPropertiesAsync();
+
+            // Some players, for a moment, have no details to give at all
+            if (media == null)
+                return null;
+
             var playback = session.GetPlaybackInfo();
             var timeline = session.GetTimelineProperties();
             var (source, sourceName, process) = Identify(session.SourceAppUserModelId);
@@ -475,6 +523,42 @@ namespace Islet
                 return await GetTrackAsync(lookAgain: false);
             }
 
+            // A music video is shown as the song it is
+            ArtworkService.SongFromVideo? asSong = null;
+            string? site = null;
+            bool isMix = false;
+
+            if (source == MediaSource.Browser)
+                lock (sync)
+                    if (seen.TryGetValue(session, out var known))
+                    {
+                        site = known.Site;
+
+                        if (known.Title == media.Title)
+                        {
+                            asSong = known.Song;
+                            isMix = known.Mix;
+                        }
+                    }
+
+            if (asSong != null)
+                return new TrackInfo(
+                    asSong.Title, asSong.Artist, "",
+                    playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing,
+                    asSong.Cover,
+                    timeline.Position,
+                    timeline.EndTime - timeline.StartTime,
+                    timeline.LastUpdatedTime,
+                    source, sourceName, process,
+                    playback.PlaybackRate is > 0 and double videoRate ? videoRate : 1,
+                    playback.IsShuffleActive,
+                    playback.AutoRepeatMode,
+                    playback.Controls.IsShuffleEnabled,
+                    playback.Controls.IsRepeatEnabled,
+                    site,
+                    VideoClip: asSong.Clip,
+                    Edited: asSong.Edit != null);
+
             return new TrackInfo(
                 string.IsNullOrWhiteSpace(media.Title)
                     ? UnknownTitle
@@ -509,7 +593,9 @@ namespace Islet
                 playback.IsShuffleActive,
                 playback.AutoRepeatMode,
                 playback.Controls.IsShuffleEnabled,
-                playback.Controls.IsRepeatEnabled
+                playback.Controls.IsRepeatEnabled,
+                site,
+                Mix: isMix
             );
         }
 
@@ -522,6 +608,8 @@ namespace Islet
             {
                 if (!seen.TryGetValue(session, out var info))
                     return false;
+
+                music |= (info.Song != null || info.Mix) && info.Title == media.Title;
 
                 if (!music && !videosToo)
                 {

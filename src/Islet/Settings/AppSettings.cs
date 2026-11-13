@@ -99,6 +99,9 @@ namespace Islet
         /// <summary>Videos in the browser (YouTube, Instagram, X…), not just music from the web.</summary>
         public bool ShowWebVideos { get; set; }
 
+        /// <summary>YouTube music videos, lyric videos and audio uploads shown and counted as the songs they are.</summary>
+        public bool MusicVideosAsSongs { get; set; } = true;
+
         /// <summary>Look up covers the listening stats are missing, on Apple's iTunes catalog.</summary>
         public bool FindStatsCovers { get; set; } = true;
         public bool SourceOtherApps { get; set; }
@@ -134,10 +137,15 @@ namespace Islet
         public string SpotifyClientId { get; set; } = "";
         public string? SpotifyRefreshToken { get; set; }
 
+        /// <summary>
+        /// Where settings, stats and the log live: %APPDATA%\Islet, unless ISLET_DATA names
+        /// another folder (the tests use their own, so they never touch the real one).
+        /// </summary>
         [JsonIgnore]
-        public static string Folder => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Islet");
+        public static string Folder =>
+            Environment.GetEnvironmentVariable("ISLET_DATA") is string other && other.Length > 0
+                ? other
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Islet");
 
         static string FilePath => Path.Combine(Folder, "settings.json");
 

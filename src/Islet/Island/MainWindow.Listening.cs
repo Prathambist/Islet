@@ -38,7 +38,7 @@ namespace Islet
             // Only songs count: not videos, clips or other media.
             if (track != null && playing && gap > 0 && gap < 5 && ListeningStats.Counts(track))
                 listening.Add(now, track.Artist, track.Title, TimeSpan.FromSeconds(gap), track.Album, EffectiveArt(track, trackKey),
-                    track.SourceName, track.PositionAt(DateTimeOffset.Now));
+                    track.Site ?? track.SourceName, track.PositionAt(DateTimeOffset.Now));
 
             AmbientCaption.Text = (Settings.DailyMusicSummary ? ListeningStats.Describe(listening.For(now)) : null)
                 ?? "Nothing playing";

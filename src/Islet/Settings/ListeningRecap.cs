@@ -30,7 +30,7 @@ namespace Islet
         {
             var song = period.Songs.FirstOrDefault();
             var songCover = cover(song?.Cover);
-            var colour = AlbumPalette.From(songCover).Primary;
+            var colour = songCover != null || song == null ? AlbumPalette.From(songCover).Primary : GeneratedCover.Colour(song.Name, song.Artist);
 
             var root = new Border
             {
@@ -71,7 +71,7 @@ namespace Islet
                 top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 top.ColumnDefinitions.Add(new ColumnDefinition());
 
-                top.Children.Add(Picture(songCover, 150, 14));
+                top.Children.Add(Picture(songCover, 150, 14, song.Name, song.Artist));
 
                 var about = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(22, 0, 0, 0) };
                 about.Children.Add(Words("TOP SONG", 11, FontWeights.SemiBold, Faint));
@@ -129,7 +129,7 @@ namespace Islet
                         continue;
 
                     var spot = new StackPanel();
-                    var face = Picture(cover(artists[i].Cover), 92, 46);
+                    var face = Picture(cover(artists[i].Cover), 92, 46, artists[i].Name, null);
                     face.HorizontalAlignment = HorizontalAlignment.Center;
                     spot.Children.Add(face);
 
@@ -192,16 +192,29 @@ namespace Islet
             return panel;
         }
 
-        // A cover, or a soft blank in its place
-        static Border Picture(BitmapSource? image, double size, double radius) => new()
+        // A cover, or one made from the name in its place
+        static Border Picture(BitmapSource? image, double size, double radius, string name, string? by)
         {
-            Width = size,
-            Height = size,
-            CornerRadius = new CornerRadius(radius),
-            Background = image != null
-                ? new ImageBrush(image) { Stretch = Stretch.UniformToFill }
-                : Frozen(Color.FromArgb(40, 255, 255, 255)),
-            Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 6, Opacity = 0.45, Color = Colors.Black }
-        };
+            var picture = new Border
+            {
+                Width = size,
+                Height = size,
+                CornerRadius = new CornerRadius(radius),
+                Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 6, Opacity = 0.45, Color = Colors.Black }
+            };
+
+            if (image != null)
+            {
+                picture.Background = new ImageBrush(image) { Stretch = Stretch.UniformToFill };
+                return picture;
+            }
+
+            var (background, initials) = GeneratedCover.For(name, by);
+            picture.Background = background;
+            picture.Child = Words(initials, size * 0.32, FontWeights.SemiBold, Text);
+            ((TextBlock)picture.Child).HorizontalAlignment = HorizontalAlignment.Center;
+            ((TextBlock)picture.Child).VerticalAlignment = VerticalAlignment.Center;
+            return picture;
+        }
     }
 }

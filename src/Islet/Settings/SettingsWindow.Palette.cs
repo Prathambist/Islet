@@ -43,6 +43,26 @@ namespace Islet
             palette = SettingsPalette.Find(Settings.SettingsPalette, island.AlbumAccent);
             ApplyPalette(palette, animate: false);
             BuildPaletteDots();
+
+            // The Album palette follows the song as it changes, not only the one playing when Settings opened
+            island.AlbumAccentChanged += FollowSong;
+            Closed += (s, e) => island.AlbumAccentChanged -= FollowSong;
+        }
+
+        void FollowSong()
+        {
+            // The Album dot shows the song's colour whichever palette is in use
+            BuildPaletteDots();
+
+            if (palette.Name != SettingsPalette.AlbumName)
+                return;
+
+            palette = AlbumChoice;
+            ApplyPalette(palette, animate: true);
+
+            // The top song's wash on the Listening page is mixed with the palette
+            if (statsBody != null && shown == listeningPage)
+                DrawStats(force: true);
         }
 
         SettingsPalette AlbumChoice => SettingsPalette.Album(island.AlbumAccent);

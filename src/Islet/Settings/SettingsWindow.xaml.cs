@@ -215,6 +215,9 @@ namespace Islet
             SwitchRow(sources, "Music in your browser",
                 "Spotify Web, YouTube Music, SoundCloud, Apple Music on the web and more, in Chrome, Edge, Firefox, Opera or Brave.",
                 Settings.SourceBrowsers, v => { Settings.SourceBrowsers = v; Settings.Save(); });
+            SwitchRow(sources, "Music videos as songs",
+                "Official music videos, lyric videos and audio uploads on YouTube show as the song, with its album cover, and count in your listening stats. Other videos stay off. Checked against Deezer and iTunes by song name.",
+                Settings.MusicVideosAsSongs, v => { Settings.MusicVideosAsSongs = v; Settings.Save(); });
             SwitchRow(sources, "Videos on websites",
                 "YouTube, Instagram, X and other videos. Off keeps the island to music; on, a video shows once it has played for a few seconds, so previews and feed clips stay off.",
                 Settings.ShowWebVideos, v => { Settings.ShowWebVideos = v; Settings.Save(); });

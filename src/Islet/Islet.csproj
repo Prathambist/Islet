@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <!-- Overridden from the git tag by the release workflow; used by the updater -->
-    <Version>1.1.0</Version>
+    <Version>2.3.0</Version>
     <!-- WinForms is used only for the system tray icon -->
     <UseWindowsForms>true</UseWindowsForms>
     <!-- Shown on the exe and on every shortcut to it -->

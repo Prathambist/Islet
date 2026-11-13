@@ -15,9 +15,17 @@ namespace Islet
 
         // ================= Lyrics =================
 
-        async Task LoadLyricsAsync(string key, TrackInfo info)
+        // How long the track was when its lyrics were last looked for, to look again when that
+        // changes under the same title (an ad before a music video, then the video)
+        TimeSpan lyricsLookedUpAt;
+
+        async Task LoadLyricsAsync(string key, TrackInfo info, int attempt = 0)
         {
             if (!Settings.ShowLyrics || Profile.Lyrics == LyricsStyle.None)
+                return;
+
+            // A sped-up or slowed edit runs at another speed than any lyrics for the song
+            if (info.Edited)
                 return;
 
             if (lyricsCache.TryGetValue(key, out var cached))
@@ -40,20 +48,40 @@ namespace Islet
             }
 
             IReadOnlyList<LyricsService.Line>? result;
+            lyricsLookedUpAt = info.Duration;
 
             try
             {
-                result = await LyricsService.GetAsync(
+                var (lines, length) = await LyricsService.GetWithLengthAsync(
                     info.Artist, info.Title, info.Album, info.Duration, info.Source == MediaSource.Browser);
+
+                // A music video's clip runs a little longer than the song, the extra being its
+                // intro before the music: the lines move later by that much
+                var intro = info.Duration - length;
+
+                if (lines != null && info.VideoClip && length > TimeSpan.Zero && intro > TimeSpan.FromSeconds(0.5))
+                    lines = lines.Select(l => l with { Time = l.Time + intro }).ToList();
+
+                result = lines;
             }
             catch
             {
-                // Service unreachable: try again next time this song comes up
+                // Service unreachable (LRCLIB is busy now and then): tried again shortly,
+                // a couple of times, while the same song is still playing
+                if (attempt < 2)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(20 * (attempt + 1)));
+
+                    if (key == trackKey && track != null)
+                        await LoadLyricsAsync(key, track, attempt + 1);
+                }
+
                 return;
             }
 
-            // A miss without a known length may just be too early; don't remember it
-            if (result != null || info.Duration > TimeSpan.Zero)
+            // A miss without a known length may just be too early, and one during a short ad says
+            // nothing about the song after it; neither is remembered
+            if (result != null || info.Duration > TimeSpan.FromSeconds(40))
             {
                 if (lyricsCache.Count > 200)
                     lyricsCache.Clear();

@@ -393,7 +393,7 @@ namespace Islet.Tests
             stats.Add(Evening, "The Beatles", "Something", TimeSpan.FromMinutes(4), "Abbey Road", Image(300, 300));
 
             // Longest played first; the one with a cover isn't missing
-            Assert.Equal(new[] { ("My Sweet Lord", (string?)"George Harrison"), ("What Is Life", "George Harrison") },
+            Assert.Equal(new[] { ("My Sweet Lord", (string?)"George Harrison", (string?)null), ("What Is Life", "George Harrison", null) },
                 stats.MissingCovers(Evening, Evening));
 
             stats.SetCover("My Sweet Lord", "George Harrison", Image(600, 600));
@@ -407,7 +407,7 @@ namespace Islet.Tests
 
             stats.Save();
             var aWeekLater = new ListeningStats(folder, () => Evening.AddDays(7));
-            Assert.Equal(("What Is Life", (string?)"George Harrison"), aWeekLater.MissingCovers(Evening, Evening).Single());
+            Assert.Equal(("What Is Life", (string?)"George Harrison", (string?)null), aWeekLater.MissingCovers(Evening, Evening).Single());
         }
 
         [Fact]
@@ -422,6 +422,81 @@ namespace Islet.Tests
             stats.Add(Evening, "A", "New song", TimeSpan.FromSeconds(4), "Album", Image(300, 300));
             Assert.NotNull(stats.Period(Evening, Evening).Songs.Single().Cover);
         }
+
+        [Fact]
+        public void AVideoFromBeforeTheyWereLeftOutCanBeTakenOut()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+            stats.Add(Evening.Date.AddHours(20), "Some Channel", "I bought the cheapest phones", TimeSpan.FromMinutes(20));
+            stats.Add(Evening.Date.AddHours(21), "Arctic Monkeys", "505", TimeSpan.FromMinutes(10), "Favourite Worst Nightmare");
+
+            Assert.True(stats.ForgetNotMusic("I bought the cheapest phones", "Some Channel"));
+
+            var day = stats.Period(Evening, Evening);
+            Assert.Equal(TimeSpan.FromMinutes(10), day.Total);
+            Assert.Equal("505", day.Songs.Single().Name);
+            Assert.Equal("Arctic Monkeys", day.Artists.Single().Name);
+            Assert.True(day.Hours.Sum(h => h.TotalMinutes) <= 10.01);
+
+            // A song with an album came from a music player, so it's never taken out
+            Assert.False(stats.ForgetNotMusic("505", "Arctic Monkeys"));
+            Assert.Single(stats.Period(Evening, Evening).Songs);
+        }
+
+        [Fact]
+        public void AStandInCoverIsTheSameForTheSameNameAndHasItsInitials()
+        {
+            var (first, initials) = GeneratedCover.For("Let It Happen", "Tame Impala");
+            var (again, _) = GeneratedCover.For("Let It Happen", "Tame Impala");
+            var (other, _) = GeneratedCover.For("Nights", "Frank Ocean");
+
+            Assert.Equal("LI", initials);
+            Assert.Equal(((System.Windows.Media.LinearGradientBrush)first).GradientStops[0].Color,
+                ((System.Windows.Media.LinearGradientBrush)again).GradientStops[0].Color);
+            Assert.NotEqual(((System.Windows.Media.LinearGradientBrush)first).GradientStops[0].Color,
+                ((System.Windows.Media.LinearGradientBrush)other).GradientStops[0].Color);
+
+            Assert.Equal("N", GeneratedCover.Initials("Nights"));
+            Assert.Equal("5", GeneratedCover.Initials("505"));
+            Assert.Equal("RU", GeneratedCover.Initials("R U Mine?"));
+            Assert.Equal("♪", GeneratedCover.Initials("!!!"));
+        }
+
+        [Fact]
+        public void MixesAndAdsDontCount()
+        {
+            TrackInfo Video(TimeSpan length, bool mix, bool edited = false) =>
+                new("Do I Wanna Know?", "Arctic Monkeys", "", true, Image(600, 600), TimeSpan.Zero, length,
+                    DateTimeOffset.Now, MediaSource.Browser, "Brave", "brave", Mix: mix, Edited: edited);
+
+            Assert.True(ListeningStats.Counts(Video(TimeSpan.FromMinutes(4.5), mix: false)));
+            Assert.False(ListeningStats.Counts(Video(TimeSpan.FromMinutes(50), mix: true)));
+
+            // A sped-up or slowed edit shows, but isn't counted
+            Assert.False(ListeningStats.Counts(Video(TimeSpan.FromMinutes(3.5), mix: false, edited: true)));
+
+            // Fifteen seconds under the music video's title: the ad before it
+            Assert.False(ListeningStats.Counts(Video(TimeSpan.FromSeconds(15), mix: false)));
+        }
+
+        [Theory]
+        [InlineData("Daft Punk", "daftpunk")]
+        [InlineData("Drake ft. Rihanna", "drake")]
+        [InlineData("Song (feat. Someone)", "song")]
+        [InlineData("Lefty Gunplay", "leftygunplay")]
+        public void FeaturedArtistsComeOffButWordsContainingFtStay(string name, string normalized) =>
+            Assert.Equal(normalized, ArtworkService.Normalize(name));
+
+        [Theory]
+        [InlineData("SZA - Snooze (Sped Up)", "Sped Up")]
+        [InlineData("SZA - Snooze sped up", "Sped Up")]
+        [InlineData("Lana Del Rey - Summertime Sadness (slowed + reverb)", "Slowed + Reverb")]
+        [InlineData("The Weeknd - After Hours (Slowed)", "Slowed")]
+        [InlineData("Song - Artist [Nightcore]", "Nightcore")]
+        [InlineData("Billie Eilish - bad guy (8D AUDIO)", "8D")]
+        [InlineData("Arctic Monkeys - 505 (Official Audio)", null)]
+        public void KnowsAnEditFromItsTitle(string title, string? edit) =>
+            Assert.Equal(edit, ArtworkService.EditOf(title));
 
         [Theory]
         [InlineData(30, "under a minute")]

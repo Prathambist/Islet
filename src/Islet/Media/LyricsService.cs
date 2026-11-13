@@ -66,6 +66,11 @@ namespace Islet
         /// throw instead, so callers don't remember an outage as "no lyrics".
         /// </summary>
         public static async Task<IReadOnlyList<Line>?> GetAsync(
+            string artist, string title, string album, TimeSpan duration, bool fromBrowser) =>
+            (await GetWithLengthAsync(artist, title, album, duration, fromBrowser)).Lines;
+
+        /// <summary>The same, with the length of the recording the lyrics were timed to.</summary>
+        public static async Task<(IReadOnlyList<Line>? Lines, TimeSpan Length)> GetWithLengthAsync(
             string artist, string title, string album, TimeSpan duration, bool fromBrowser)
         {
             for (int attempt = 0; ; attempt++)
@@ -82,13 +87,18 @@ namespace Islet
             }
         }
 
-        static async Task<IReadOnlyList<Line>?> LookupAsync(
+        static TimeSpan LengthOf(JsonElement item, TimeSpan fallback) =>
+            item.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number
+                ? TimeSpan.FromSeconds(d.GetDouble())
+                : fallback;
+
+        static async Task<(IReadOnlyList<Line>? Lines, TimeSpan Length)> LookupAsync(
             string artist, string title, string album, TimeSpan duration, bool fromBrowser)
         {
             (artist, title) = Clean(artist, title, fromBrowser);
 
             if (title.Length == 0)
-                return null;
+                return (null, TimeSpan.Zero);
 
             try
             {
@@ -109,7 +119,7 @@ namespace Islet
                         var lines = Parse(doc.RootElement);
 
                         if (lines != null)
-                            return lines;
+                            return (lines, LengthOf(doc.RootElement, duration));
                     }
                 }
 
@@ -120,7 +130,7 @@ namespace Islet
 
                 using var results = JsonDocument.Parse(await http.GetStringAsync(search));
                 var best = PickSearchResult(results.RootElement, artist, title, duration);
-                return best != null ? Parse(best.Value) : null;
+                return best != null ? (Parse(best.Value), LengthOf(best.Value, duration)) : (null, TimeSpan.Zero);
             }
             catch (Exception ex)
             {

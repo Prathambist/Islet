@@ -225,21 +225,29 @@ namespace Islet
 
                     int found = 0;
 
-                    foreach (var (title, artist) in missing)
+                    foreach (var (title, artist, album) in missing)
                     {
-                        var (answered, cover) = await ArtworkService.FindForStatsAsync(artist, title);
+                        var result = await ArtworkService.FindForStatsAsync(artist, title, album);
 
                         // No answer (offline, say): left to try another time
-                        if (!answered || !IsLoaded)
+                        if (!result.Answered || !IsLoaded)
                             return;
 
-                        stats.SetCover(title, artist, cover);
+                        // Unknown to both catalogs, artist and all, with no album: a video from
+                        // before they were left out, so it goes
+                        if (!result.Known && album == null && stats.ForgetNotMusic(title, artist))
+                        {
+                            found++;
+                            continue;
+                        }
 
-                        if (cover != null)
+                        stats.SetCover(title, artist, result.Cover);
+
+                        if (result.Cover != null)
                             found++;
 
-                        // iTunes asks for no more than about twenty searches a minute
-                        await Task.Delay(TimeSpan.FromSeconds(3));
+                        // Gently, well inside what Deezer and iTunes allow
+                        await Task.Delay(TimeSpan.FromMilliseconds(600));
                     }
 
                     stats.Save();
@@ -323,7 +331,8 @@ namespace Islet
         Border Hero(Ranked song)
         {
             var image = Cover(song.Cover);
-            var tint = AlbumPalette.Tone(AlbumPalette.From(image).Primary, palette.Light ? 0.86 : 0.2, 0.3, 0.75);
+            var colour = image != null ? AlbumPalette.From(image).Primary : GeneratedCover.Colour(song.Name, song.Artist);
+            var tint = AlbumPalette.Tone(colour, palette.Light ? 0.86 : 0.2, 0.3, 0.75);
 
             var hero = new Border
             {
@@ -340,7 +349,7 @@ namespace Islet
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition());
 
-            var art = Art(image, 104, 12, "");
+            var art = Art(image, 104, 12, Seed(song));
             art.Effect = new DropShadowEffect { BlurRadius = 22, ShadowDepth = 6, Opacity = palette.Light ? 0.22 : 0.45, Color = Colors.Black };
             grid.Children.Add(art);
 
@@ -685,7 +694,15 @@ namespace Islet
         static Color? SourceColour(string source, int index) => source switch
         {
             "Spotify" => Color.FromRgb(0x1D, 0xB9, 0x54),
+            "Spotify Web" => Color.FromRgb(0x1E, 0xD7, 0x60),
             "Apple Music" => Color.FromRgb(0xFA, 0x2D, 0x48),
+            "Apple Music Web" => Color.FromRgb(0xFC, 0x5C, 0x7D),
+            "YouTube" => Color.FromRgb(0xFF, 0x00, 0x33),
+            "YouTube Music" => Color.FromRgb(0xFF, 0x4E, 0x45),
+            "SoundCloud" => Color.FromRgb(0xFF, 0x55, 0x00),
+            "Deezer" => Color.FromRgb(0xA2, 0x38, 0xFF),
+            "Bandcamp" => Color.FromRgb(0x1D, 0xA0, 0xC3),
+            "Amazon Music" => Color.FromRgb(0x25, 0xD1, 0xDA),
             "Chrome" => Color.FromRgb(0x42, 0x85, 0xF4),
             "Edge" => Color.FromRgb(0x2F, 0x9B, 0xE8),
             "Firefox" => Color.FromRgb(0xFF, 0x71, 0x39),
@@ -827,7 +844,7 @@ namespace Islet
 
             grid.Children.Add(place);
 
-            var art = Art(Cover(song.Cover), 40, 7, "");
+            var art = Art(Cover(song.Cover), 40, 7, Seed(song));
             art.Margin = new Thickness(0, 0, 12, 0);
             Grid.SetColumn(art, 1);
             grid.Children.Add(art);
@@ -880,7 +897,7 @@ namespace Islet
             {
                 var spot = new StackPanel { Margin = new Thickness(4, 0, 4, 0) };
 
-                var art = Art(Cover(item.Cover), 72, round ? 36 : 9, round ? "" : "");
+                var art = Art(Cover(item.Cover), 72, round ? 36 : 9, Seed(item));
                 art.HorizontalAlignment = HorizontalAlignment.Center;
                 spot.Children.Add(art);
 
@@ -947,7 +964,7 @@ namespace Islet
             top.ColumnDefinitions.Add(new ColumnDefinition());
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var art = Art(image, 84, artist ? 42 : 12, artist ? "" : item.Kind == RankedKind.Album ? "" : "");
+            var art = Art(image, 84, artist ? 42 : 12, Seed(item));
             art.Effect = new DropShadowEffect { BlurRadius = 16, ShadowDepth = 4, Opacity = 0.3, Color = Colors.Black };
             top.Children.Add(art);
 
@@ -1070,7 +1087,7 @@ namespace Islet
                     row.ColumnDefinitions.Add(new ColumnDefinition());
                     row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-                    row.Children.Add(Art(Cover(song.Cover), 30, 5, ""));
+                    row.Children.Add(Art(Cover(song.Cover), 30, 5, Seed(song)));
 
                     var name = new TextBlock { Text = song.Name, FontSize = 12.5, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
                     Grid.SetColumn(name, 1);
@@ -1206,8 +1223,8 @@ namespace Islet
             return image;
         }
 
-        // A rounded picture, or a quiet glyph in its place when there's none
-        Border Art(BitmapSource? image, double size, double radius, string glyph)
+        // A rounded picture; with none (yet), one made from the name, so nothing is ever blank
+        static Border Art(BitmapSource? image, double size, double radius, (string Name, string? By) seed)
         {
             var art = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(radius), VerticalAlignment = VerticalAlignment.Center };
 
@@ -1218,17 +1235,22 @@ namespace Islet
                 return art;
             }
 
-            art.SetResourceReference(Border.BackgroundProperty, "Control");
-            art.Child = Faded(new TextBlock
+            var (background, initials) = GeneratedCover.For(seed.Name, seed.By);
+            art.Background = background;
+            art.Child = new TextBlock
             {
-                Text = glyph,
-                FontFamily = (FontFamily)FindResource("IconFont"),
-                FontSize = size * 0.36,
+                Text = initials,
+                Foreground = Brushes.White,
+                FontSize = size * (initials.Length > 1 ? 0.32 : 0.4),
+                FontWeight = FontWeights.SemiBold,
+                Opacity = 0.92,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
-            });
+            };
             return art;
         }
+
+        static (string, string?) Seed(Ranked item) => (item.Name, item.Artist);
 
         static void Rise(ScaleTransform scale, int delayMs) =>
             scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(420))

@@ -125,6 +125,9 @@ namespace Islet
 
         /// <summary>The colour of the current song's cover, for Settings' Album palette.</summary>
         public Color AlbumAccent => accentColor;
+
+        /// <summary>The song's colour changed, for anything that follows it (the Settings window's Album palette).</summary>
+        public event Action? AlbumAccentChanged;
         public UpdateService.Release? AvailableUpdate => availableUpdate;
 
         static AppSettings Settings => AppSettings.Current;
@@ -1034,6 +1037,7 @@ namespace Islet
         {
             var (accent, second) = AlbumPalette.From(artwork);
             var vivid = Brighten(accent, 0.35);
+            bool changed = accent != accentColor;
 
             accentColor = accent;
             secondColor = second;
@@ -1064,6 +1068,9 @@ namespace Islet
             glowBrush.Freeze();
 
             ExpandedGlow.Background = glowBrush;
+
+            if (changed)
+                AlbumAccentChanged?.Invoke();
         }
 
         // ================= Title marquee =================
@@ -1212,6 +1219,13 @@ namespace Islet
                     if (surface == Surface.ExpandedMusic)
                         _ = Dispatcher.BeginInvoke(new Action(StartTitleMarquee), DispatcherPriority.Loaded);
                 }
+                else if (lyrics == null && next.Duration > TimeSpan.FromSeconds(40) &&
+                         Math.Abs((next.Duration - lyricsLookedUpAt).TotalSeconds) > 5)
+                {
+                    // Same title, different length: the ad before a music video has given way to it
+                    lyricsCache.Remove(key);
+                    _ = LoadLyricsAsync(key, next);
+                }
 
                 UpdateSurface();
                 EnsureRendering();
@@ -1234,15 +1248,23 @@ namespace Islet
             }
         }
 
-        // ================= Cover art for videos =================
+        // ================= Cover art for videos, and songs sent without one =================
 
         async Task LoadCoverAsync(string key, TrackInfo info)
         {
-            if (!Settings.FindVideoArt || info.Source != MediaSource.Browser || covers.ContainsKey(key))
+            if (covers.ContainsKey(key))
+                return;
+
+            // Spotify now and then hands Windows a song with no cover at all
+            bool appSentNone = info.Source != MediaSource.Browser && info.Artwork == null;
+
+            if (!appSentNone && (!Settings.FindVideoArt || info.Source != MediaSource.Browser))
                 return;
 
             // Look up straight away; whether it's needed is decided when showing
-            var found = await ArtworkService.FindAsync(info.Artist, info.Title, info.SourceName);
+            var found = appSentNone
+                ? (await ArtworkService.FindForStatsAsync(info.Artist == info.SourceName ? null : info.Artist, info.Title, info.Album)).Cover
+                : await ArtworkService.FindAsync(info.Artist, info.Title, info.SourceName);
 
             if (found == null)
                 return;
@@ -1265,7 +1287,8 @@ namespace Islet
 
         /// <summary>
         /// The player's own artwork when it's a real cover (Spotify, Apple Music,
-        /// YouTube Music); otherwise a looked-up cover for music videos.
+        /// YouTube Music); otherwise a looked-up cover, for music videos or for a song
+        /// whose player sent none.
         /// </summary>
         BitmapSource? EffectiveArt(TrackInfo info, string key)
         {
@@ -1275,7 +1298,8 @@ namespace Islet
             if (ownIsCover)
                 return info.Artwork;
 
-            return Settings.FindVideoArt && covers.TryGetValue(key, out var found) ? found : info.Artwork;
+            bool lookedUpAllowed = Settings.FindVideoArt || info.Source != MediaSource.Browser;
+            return lookedUpAllowed && covers.TryGetValue(key, out var found) ? found : info.Artwork;
         }
 
         void ShowArt(BitmapSource? art)

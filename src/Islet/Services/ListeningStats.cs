@@ -202,6 +202,11 @@ namespace Islet
         /// </summary>
         public static bool Counts(TrackInfo track)
         {
+            // A mix or full album isn't one song; a sped-up or slowed edit isn't the song as
+            // released; and on a music video, anything this short is the ad before it
+            if (track.Mix || track.Edited || (track.Source == MediaSource.Browser && track.Duration > TimeSpan.Zero && track.Duration < TimeSpan.FromSeconds(40)))
+                return false;
+
             // An empty artist is filled in with the player's name for the island
             string artist = track.Artist == track.SourceName ? "" : track.Artist;
 
@@ -382,7 +387,7 @@ namespace Islet
         /// yet (played before covers were kept, or the player had none), longest played first,
         /// leaving out those looked for lately and not found.
         /// </summary>
-        public IReadOnlyList<(string Title, string? Artist)> MissingCovers(DateTime first, DateTime last)
+        public IReadOnlyList<(string Title, string? Artist, string? Album)> MissingCovers(DateTime first, DateTime last)
         {
             var songs = new Dictionary<string, double>();
 
@@ -395,7 +400,12 @@ namespace Islet
                 .Where(s => CoverOf(s.Key) == null)
                 .Where(s => !store.Songs.TryGetValue(s.Key, out var known) || known.NotFoundOn == null ||
                             string.CompareOrdinal(known.NotFoundOn, retryBefore) <= 0)
-                .Select(s => Split(s.Key))
+                .Select(s =>
+                {
+                    var (title, artist) = Split(s.Key);
+                    string album = AlbumOf(s.Key);
+                    return (title, artist, album.Length > 0 ? album : null);
+                })
                 .ToList();
         }
 
@@ -416,6 +426,57 @@ namespace Islet
             }
 
             dirty = true;
+        }
+
+        /// <summary>
+        /// Takes something out of the stats that turned out not to be a song: a video counted
+        /// before videos were left out, whose "artist" neither music catalog has heard of. Only for
+        /// something with no album, which songs from music players always have.
+        /// </summary>
+        public bool ForgetNotMusic(string title, string? artist)
+        {
+            string song = SongKey(title, artist);
+
+            if (AlbumOf(song).Length > 0)
+                return false;
+
+            bool forgot = false;
+
+            foreach (var day in store.Days.Values)
+            {
+                if (!day.Songs.Remove(song, out double seconds))
+                    continue;
+
+                forgot = true;
+
+                // Its hours aren't kept apart from the rest; they're taken off in proportion
+                if (day.Hours != null && day.Seconds > 0)
+                {
+                    double share = Math.Min(1, seconds / day.Seconds);
+
+                    for (int hour = 0; hour < day.Hours.Length; hour++)
+                        day.Hours[hour] *= 1 - share;
+                }
+
+                day.Seconds = Math.Max(0, day.Seconds - seconds);
+
+                if (artist != null && day.Artists.TryGetValue(artist, out double heard))
+                {
+                    if (heard - seconds < 1)
+                        day.Artists.Remove(artist);
+                    else
+                        day.Artists[artist] = heard - seconds;
+                }
+
+                day.Plays.Remove(song);
+                day.Skips.Remove(song);
+                day.Streaks.Remove(song);
+            }
+
+            store.Songs.Remove(song);
+            store.FirstHeard.Remove(song);
+            dirty |= forgot;
+            return forgot;
         }
 
         static string Hash(string text) =>
