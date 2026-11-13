@@ -93,8 +93,8 @@ namespace Islet.Tests
 
             var songs = stats.TopSongs(Evening, 5);
 
-            Assert.Equal(new Ranked("One More Time — Radio Edit", "Daft Punk", TimeSpan.FromMinutes(3)), songs[0]);
-            Assert.Equal(new Ranked("Some video", null, TimeSpan.FromMinutes(1)), songs[1]);
+            Assert.Equal(("One More Time — Radio Edit", "Daft Punk", TimeSpan.FromMinutes(3)), (songs[0].Name, songs[0].Artist, songs[0].Time));
+            Assert.Equal(("Some video", (string?)null, TimeSpan.FromMinutes(1)), (songs[1].Name, songs[1].Artist, songs[1].Time));
         }
 
         [Fact]
@@ -124,7 +124,7 @@ namespace Islet.Tests
             var week = stats.Period(Evening.AddDays(-6), Evening);
 
             Assert.Equal(TimeSpan.FromMinutes(65), week.Total);
-            Assert.Equal(new Ranked("Let It Happen", "Tame Impala", TimeSpan.FromMinutes(35)), week.Songs[0]);
+            Assert.Equal(("Let It Happen", "Tame Impala", TimeSpan.FromMinutes(35)), (week.Songs[0].Name, week.Songs[0].Artist, week.Songs[0].Time));
             Assert.Equal(new[] { "Tame Impala", "Arctic Monkeys" }, week.Artists.Select(a => a.Name));
         }
 
@@ -174,24 +174,95 @@ namespace Islet.Tests
             System.Windows.Media.Imaging.BitmapSource.Create(width, height, 96, 96,
                 System.Windows.Media.PixelFormats.Gray8, null, new byte[width * height], width);
 
-        static TrackInfo Track(MediaSource source, string album, System.Windows.Media.Imaging.BitmapSource? art) =>
-            new("Title", "Artist", album, true, art, TimeSpan.Zero, TimeSpan.FromMinutes(3),
+        static TrackInfo Track(MediaSource source, string album, System.Windows.Media.Imaging.BitmapSource? art, string artist = "Artist", string title = "Title") =>
+            new(title, artist, album, true, art, TimeSpan.Zero, TimeSpan.FromMinutes(3),
                 DateTimeOffset.Now, source, source.ToString(), "chrome");
 
         [Fact]
-        public void YouTubeVideosDontCountButMusicDoes()
+        public void OnlySongsCount()
         {
-            // A YouTube video: wide thumbnail, no album; or no thumbnail yet
+            // A YouTube video: a channel, but a wide thumbnail, or none yet
             Assert.False(ListeningStats.Counts(Track(MediaSource.Browser, "", Image(1280, 720))));
             Assert.False(ListeningStats.Counts(Track(MediaSource.Browser, "", null)));
 
-            // YouTube Music and Spotify Web: a square cover, or an album
+            // Instagram or X: no artist (the island fills in the browser's name), whatever the picture
+            Assert.False(ListeningStats.Counts(Track(MediaSource.Browser, "", Image(256, 256), artist: "Browser")));
+
+            // A site's icon sent as its artwork isn't a cover
+            Assert.False(ListeningStats.Counts(Track(MediaSource.Browser, "", Image(48, 48))));
+
+            // YouTube Music, Spotify Web, SoundCloud: an album, or an artist with a square cover
             Assert.True(ListeningStats.Counts(Track(MediaSource.Browser, "", Image(544, 544))));
             Assert.True(ListeningStats.Counts(Track(MediaSource.Browser, "AM", Image(1280, 720))));
 
-            // The apps always count
+            // Video players and other apps: the same test as the browser
+            Assert.False(ListeningStats.Counts(Track(MediaSource.Other, "", Image(1920, 1080))));
+            Assert.True(ListeningStats.Counts(Track(MediaSource.Other, "Rumours", null)));
+
+            // The music apps count songs, but not their ads, which name no artist
             Assert.True(ListeningStats.Counts(Track(MediaSource.Spotify, "", null)));
             Assert.True(ListeningStats.Counts(Track(MediaSource.AppleMusic, "", null)));
+            Assert.False(ListeningStats.Counts(Track(MediaSource.Spotify, "", null, artist: "Spotify", title: "Advertisement")));
+        }
+
+        [Fact]
+        public void APlayCountsAfterHalfAMinuteAndOncePerListen()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+
+            // Twenty seconds isn't a play; another twenty, without a break, makes it one
+            stats.Add(Evening, "Arctic Monkeys", "505", TimeSpan.FromSeconds(20));
+            Assert.Equal(0, stats.Period(Evening, Evening).Songs[0].Plays);
+
+            stats.Add(Evening, "Arctic Monkeys", "505", TimeSpan.FromSeconds(20));
+            stats.Add(Evening, "Arctic Monkeys", "505", TimeSpan.FromMinutes(2));
+            Assert.Equal(1, stats.Period(Evening, Evening).Songs[0].Plays);
+
+            // Back to it after another song: a second play
+            stats.Add(Evening, "Tame Impala", "Let It Happen", TimeSpan.FromMinutes(1));
+            stats.Add(Evening, "Arctic Monkeys", "505", TimeSpan.FromMinutes(1));
+
+            var day = stats.Period(Evening, Evening);
+            Assert.Equal(2, day.Songs.Single(s => s.Name == "505").Plays);
+            Assert.Equal(3, day.Plays);
+            Assert.Equal(2, day.Artists.Single(a => a.Name == "Arctic Monkeys").Plays);
+        }
+
+        [Fact]
+        public void KeepsCoversAndAlbumsAndAnArtistTakesTheirTopSongsCover()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+            stats.Add(Evening, "Arctic Monkeys", "Do I Wanna Know?", TimeSpan.FromMinutes(9), "AM", Image(600, 600));
+            stats.Add(Evening, "Arctic Monkeys", "505", TimeSpan.FromMinutes(4), "Favourite Worst Nightmare", Image(300, 300));
+            stats.Add(Evening, "Arctic Monkeys", "R U Mine?", TimeSpan.FromMinutes(5), "AM", Image(600, 600));
+            stats.Save();
+
+            var day = new ListeningStats(folder, () => Evening).Period(Evening, Evening);
+
+            // Songs on the same album share one small cover
+            var covers = Directory.GetFiles(Path.Combine(folder, "covers"));
+            Assert.Equal(2, covers.Length);
+            Assert.Equal(day.Songs[0].Cover, day.Songs.Single(s => s.Name == "R U Mine?").Cover);
+            Assert.True(File.Exists(day.Songs[0].Cover));
+
+            // Albums add up their songs
+            Assert.Equal(("AM", "Arctic Monkeys", TimeSpan.FromMinutes(14)), (day.Albums[0].Name, day.Albums[0].Artist, day.Albums[0].Time));
+            Assert.Equal(day.Songs[0].Cover, day.Albums[0].Cover);
+            Assert.NotEqual(day.Albums[0].Cover, day.Albums[1].Cover);
+
+            Assert.Equal(day.Songs[0].Cover, day.Artists[0].Cover);
+        }
+
+        [Fact]
+        public void CoversGoWithTheirWeek()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+            stats.Add(Evening.AddDays(-7), "Old", "Old song", TimeSpan.FromMinutes(5), "Old album", Image(300, 300));
+            stats.Add(Evening, "New", "New song", TimeSpan.FromMinutes(5), "New album", Image(300, 300));
+            stats.Save();
+
+            Assert.Single(Directory.GetFiles(Path.Combine(folder, "covers")));
+            Assert.Equal("New song", stats.Period(Evening.AddDays(-7), Evening).Songs.Single().Name);
         }
 
         [Theory]

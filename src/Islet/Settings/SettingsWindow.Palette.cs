@@ -58,6 +58,10 @@ namespace Islet
 
             ApplyPalette(next, animate: true);
             BuildPaletteDots();
+
+            // The top song's wash is mixed with the palette's colours, so it's drawn again
+            if (statsBody != null && shown == listeningPage)
+                DrawStats(force: true);
         }
 
         void ApplyPalette(SettingsPalette next, bool animate)

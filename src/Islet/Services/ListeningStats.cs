@@ -1,5 +1,9 @@
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace Islet
 {
@@ -9,15 +13,34 @@ namespace Islet
         public static readonly DaySummary Empty = new(TimeSpan.Zero, null, null);
     }
 
-    /// <summary>A song or artist in a top list, with how long it played. Artist is null for an artist's own entry.</summary>
-    public sealed record Ranked(string Name, string? Artist, TimeSpan Time);
+    /// <summary>
+    /// A song, artist or album in a top list, with how long it played. Artist is null for an
+    /// artist's own entry. Cover is a saved picture of its album, when there is one.
+    /// </summary>
+    public sealed record Ranked(string Name, string? Artist, TimeSpan Time)
+    {
+        /// <summary>How many times it was played, counting a play once it has gone on for half a minute.</summary>
+        public int Plays { get; init; }
+
+        /// <summary>The full path of its cover, saved on this PC, or null.</summary>
+        public string? Cover { get; init; }
+    }
 
     /// <summary>
-    /// Everything that played over one or more days: the total, every song and artist longest
-    /// first, and how the listening spread over the hours of the day.
+    /// Everything that played over one or more days: the total, every song, artist and album
+    /// longest first, and how the listening spread over the hours of the day.
     /// </summary>
-    public sealed record ListeningPeriod(TimeSpan Total, IReadOnlyList<Ranked> Songs, IReadOnlyList<Ranked> Artists, IReadOnlyList<TimeSpan> Hours)
+    public sealed record ListeningPeriod(
+        TimeSpan Total,
+        IReadOnlyList<Ranked> Songs,
+        IReadOnlyList<Ranked> Artists,
+        IReadOnlyList<TimeSpan> Hours)
     {
+        public IReadOnlyList<Ranked> Albums { get; init; } = Array.Empty<Ranked>();
+
+        /// <summary>Every play of every song in the period.</summary>
+        public int Plays => Songs.Sum(s => s.Plays);
+
         /// <summary>The hour of the day with the most music, or null with none counted.</summary>
         public int? PeakHour
         {
@@ -35,45 +58,67 @@ namespace Islet
     }
 
     /// <summary>
-    /// Keeps count of how long music actually plays each day, by artist, by song and by hour, for
-    /// the daily summary and the Listening page. Only playing time counts, not paused. The last
-    /// week is kept, in its own small file, and nowhere else: none of it leaves the PC.
+    /// Keeps count of how long songs actually play each day, by song, artist, album and hour, with
+    /// a small copy of each album's cover, for the daily summary and the Listening page. Only
+    /// playing time counts, and only songs: not videos or other media. The last week is kept, in
+    /// its own small file and a folder of covers, and nowhere else: none of it leaves the PC.
     /// </summary>
     public sealed class ListeningStats
     {
         /// <summary>Today and the six days before it.</summary>
         public const int DaysKept = 7;
 
-        const string Separator = " — ";
+        /// <summary>How long a song plays before it counts as a play.</summary>
+        public static readonly TimeSpan PlayAfter = TimeSpan.FromSeconds(30);
 
-        // Seconds, by day ("2026-11-09"), then by artist, by "Title — Artist" and by hour
+        const string Separator = " — ";
+        const int CoverSize = 192;
+
+        // Seconds, by day ("2026-11-09"), then by artist, by "Title — Artist", by album and by hour
         sealed class Day
         {
             public double Seconds { get; set; }
             public Dictionary<string, double> Artists { get; set; } = new();
             public Dictionary<string, double> Songs { get; set; } = new();
+            public Dictionary<string, double> Albums { get; set; } = new();
+            public Dictionary<string, int> Plays { get; set; } = new();
 
             // Missing from days counted before hours were
             public double[]? Hours { get; set; }
         }
 
+        // What's known of a song beyond its name: its album, and the cover saved for it
+        sealed class Song
+        {
+            public string Album { get; set; } = "";
+            public string? Cover { get; set; }
+        }
+
         sealed class Store
         {
             public Dictionary<string, Day> Days { get; set; } = new();
+            public Dictionary<string, Song> Songs { get; set; } = new();
 
             /// <summary>The last day the evening summary was shown, so it's shown once.</summary>
             public string? SummaryShownOn { get; set; }
         }
 
         readonly string path;
+        readonly string coverFolder;
         readonly Func<DateTime> clock;
         Store store = new();
         DateTime lastSaved = DateTime.MinValue;
         bool dirty;
 
+        // The song playing now, and for how long without a break, to count it as a play once
+        string? runSong;
+        double runSeconds;
+        bool runCounted;
+
         public ListeningStats(string folder, Func<DateTime>? clock = null)
         {
             path = Path.Combine(folder, "listening.json");
+            coverFolder = Path.Combine(folder, "covers");
             this.clock = clock ?? (() => DateTime.Now);
             Load();
         }
@@ -82,7 +127,25 @@ namespace Islet
 
         string Oldest => Key(clock().AddDays(1 - DaysKept));
 
-        public void Add(DateTime when, string artist, string title, TimeSpan played)
+        /// <summary>
+        /// Whether a track is a song, and so counts in these stats. The Spotify and Apple Music apps
+        /// count when they name an artist, which their ads don't. Anything else has to look like
+        /// music: an album, or an artist with a real square cover. Videos on YouTube come with a wide
+        /// thumbnail, and clips on Instagram or X with no artist at all.
+        /// </summary>
+        public static bool Counts(TrackInfo track)
+        {
+            // An empty artist is filled in with the player's name for the island
+            string artist = track.Artist == track.SourceName ? "" : track.Artist;
+
+            if (track.Source is MediaSource.Spotify or MediaSource.AppleMusic)
+                return !string.IsNullOrWhiteSpace(artist) && track.Title != MediaController.UnknownTitle;
+
+            bool squareCover = track.Artwork != null && ArtworkService.IsSquare(track.Artwork) && !ArtworkService.LooksLikeIcon(track.Artwork);
+            return BrowserPreviews.IsMusic(artist, track.Album, squareCover);
+        }
+
+        public void Add(DateTime when, string artist, string title, TimeSpan played, string album = "", BitmapSource? cover = null)
         {
             if (played <= TimeSpan.Zero)
                 return;
@@ -100,14 +163,24 @@ namespace Islet
 
             artist = artist.Trim();
             title = title.Trim();
+            album = album.Trim();
 
             if (artist.Length > 0)
                 day.Artists[artist] = day.Artists.GetValueOrDefault(artist) + seconds;
+
+            if (album.Length > 0)
+            {
+                string albumKey = artist.Length > 0 ? album + Separator + artist : album;
+                day.Albums[albumKey] = day.Albums.GetValueOrDefault(albumKey) + seconds;
+            }
 
             if (title.Length > 0)
             {
                 string song = artist.Length > 0 ? title + Separator + artist : title;
                 day.Songs[song] = day.Songs.GetValueOrDefault(song) + seconds;
+
+                CountPlay(day, song, seconds);
+                Remember(song, title, artist, album, cover);
             }
 
             dirty = true;
@@ -117,15 +190,75 @@ namespace Islet
                 Save();
         }
 
-        /// <summary>
-        /// Whether a track counts as music for these stats. YouTube videos don't: browsers don't
-        /// say which site is playing, but a video comes with a wide thumbnail and no album, while
-        /// YouTube Music, Spotify Web and the like send a square cover and usually an album.
-        /// </summary>
-        public static bool Counts(TrackInfo track) =>
-            track.Source != MediaSource.Browser ||
-            !string.IsNullOrWhiteSpace(track.Album) ||
-            (track.Artwork != null && ArtworkService.IsSquare(track.Artwork));
+        // A play is counted once a song has gone on for half a minute without another in between
+        void CountPlay(Day day, string song, double seconds)
+        {
+            if (song != runSong)
+            {
+                runSong = song;
+                runSeconds = 0;
+                runCounted = false;
+            }
+
+            runSeconds += seconds;
+
+            if (!runCounted && runSeconds >= PlayAfter.TotalSeconds)
+            {
+                runCounted = true;
+                day.Plays[song] = day.Plays.GetValueOrDefault(song) + 1;
+            }
+        }
+
+        // The song's album, and a small copy of its cover, shared by every song on the album
+        void Remember(string song, string title, string artist, string album, BitmapSource? cover)
+        {
+            if (!store.Songs.TryGetValue(song, out var known))
+                store.Songs[song] = known = new Song();
+
+            if (album.Length > 0)
+                known.Album = album;
+
+            if (cover == null || (known.Cover != null && File.Exists(Path.Combine(coverFolder, known.Cover))))
+                return;
+
+            string name = Hash(album.Length > 0 ? $"{album}|{artist}" : $"{title}|{artist}") + ".jpg";
+            string file = Path.Combine(coverFolder, name);
+
+            try
+            {
+                if (!File.Exists(file))
+                {
+                    Directory.CreateDirectory(coverFolder);
+                    SaveCover(cover, file);
+                }
+
+                known.Cover = name;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Saving a cover for the listening stats failed", ex);
+            }
+        }
+
+        static string Hash(string text) =>
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToLowerInvariant())))[..20].ToLowerInvariant();
+
+        static void SaveCover(BitmapSource cover, string file)
+        {
+            double scale = Math.Min(1, (double)CoverSize / Math.Max(cover.PixelWidth, cover.PixelHeight));
+            BitmapSource small = scale < 1 ? new TransformedBitmap(cover, new ScaleTransform(scale, scale)) : cover;
+
+            var jpeg = new JpegBitmapEncoder { QualityLevel = 88 };
+            jpeg.Frames.Add(BitmapFrame.Create(small));
+
+            using var stream = File.Create(file);
+            jpeg.Save(stream);
+        }
+
+        string? CoverOf(string song) =>
+            store.Songs.TryGetValue(song, out var known) && known.Cover != null && File.Exists(Path.Combine(coverFolder, known.Cover))
+                ? Path.Combine(coverFolder, known.Cover)
+                : null;
 
         public DaySummary For(DateTime when)
         {
@@ -150,6 +283,8 @@ namespace Islet
             double seconds = 0;
             var songs = new Dictionary<string, double>();
             var artists = new Dictionary<string, double>();
+            var albums = new Dictionary<string, double>();
+            var plays = new Dictionary<string, int>();
             var hours = new double[24];
 
             for (var date = first.Date; date <= last.Date; date = date.AddDays(1))
@@ -158,32 +293,67 @@ namespace Islet
                     continue;
 
                 seconds += day.Seconds;
+                Merge(songs, day.Songs);
+                Merge(artists, day.Artists);
+                Merge(albums, day.Albums ?? new());
 
-                foreach (var (song, s) in day.Songs)
-                    songs[song] = songs.GetValueOrDefault(song) + s;
-
-                foreach (var (artist, s) in day.Artists)
-                    artists[artist] = artists.GetValueOrDefault(artist) + s;
+                foreach (var (song, count) in day.Plays ?? new())
+                    plays[song] = plays.GetValueOrDefault(song) + count;
 
                 if (day.Hours != null)
                     for (int hour = 0; hour < 24 && hour < day.Hours.Length; hour++)
                         hours[hour] += day.Hours[hour];
             }
 
-            return new ListeningPeriod(
-                TimeSpan.FromSeconds(seconds),
-                Ranking(songs).Select(s => SongEntry(s.Key, s.Value)).ToList(),
-                Ranking(artists).Select(a => new Ranked(a.Key, null, TimeSpan.FromSeconds(a.Value))).ToList(),
-                hours.Select(TimeSpan.FromSeconds).ToList());
+            var songList = Ranking(songs).Select(s =>
+            {
+                var (name, artist) = Split(s.Key);
+                return new Ranked(name, artist, TimeSpan.FromSeconds(s.Value))
+                {
+                    Plays = plays.GetValueOrDefault(s.Key),
+                    Cover = CoverOf(s.Key)
+                };
+            }).ToList();
+
+            // An artist's picture, and an album's cover, is that of their most played song that has one
+            string? CoverFor(Func<Ranked, bool> matches) =>
+                songList.FirstOrDefault(s => s.Cover != null && matches(s))?.Cover;
+
+            var artistList = Ranking(artists).Select(a => new Ranked(a.Key, null, TimeSpan.FromSeconds(a.Value))
+            {
+                Plays = songList.Where(s => s.Artist == a.Key).Sum(s => s.Plays),
+                Cover = CoverFor(s => s.Artist == a.Key)
+            }).ToList();
+
+            var albumList = Ranking(albums).Select(a =>
+            {
+                var (name, artist) = Split(a.Key);
+                return new Ranked(name, artist, TimeSpan.FromSeconds(a.Value))
+                {
+                    Cover = CoverFor(s => s.Artist == artist && AlbumOf(s) == name)
+                };
+            }).ToList();
+
+            return new ListeningPeriod(TimeSpan.FromSeconds(seconds), songList, artistList, hours.Select(TimeSpan.FromSeconds).ToList())
+            {
+                Albums = albumList
+            };
+        }
+
+        string AlbumOf(Ranked song) =>
+            store.Songs.TryGetValue(song.Artist == null ? song.Name : song.Name + Separator + song.Artist, out var known) ? known.Album : "";
+
+        static void Merge(Dictionary<string, double> into, Dictionary<string, double> from)
+        {
+            foreach (var (key, s) in from)
+                into[key] = into.GetValueOrDefault(key) + s;
         }
 
         // "Title — Artist" back into its title and artist
-        static Ranked SongEntry(string key, double seconds)
+        static (string Name, string? Artist) Split(string key)
         {
             int split = key.LastIndexOf(Separator, StringComparison.Ordinal);
-            return split < 0
-                ? new Ranked(key, null, TimeSpan.FromSeconds(seconds))
-                : new Ranked(key[..split], key[(split + Separator.Length)..], TimeSpan.FromSeconds(seconds));
+            return split < 0 ? (key, null) : (key[..split], key[(split + Separator.Length)..]);
         }
 
         /// <summary>How long music played on each of the <paramref name="days"/> days up to <paramref name="last"/>, oldest first.</summary>
@@ -234,11 +404,16 @@ namespace Islet
             if (!dirty)
                 return;
 
-            // Days before the last week aren't shown anywhere
+            // Days before the last week aren't shown anywhere, and nor are their songs' covers
             string oldest = Oldest;
 
             foreach (var key in store.Days.Keys.Where(k => string.CompareOrdinal(k, oldest) < 0).ToList())
                 store.Days.Remove(key);
+
+            var stillPlayed = store.Days.Values.SelectMany(d => d.Songs.Keys).ToHashSet();
+
+            foreach (var song in store.Songs.Keys.Where(s => !stillPlayed.Contains(s)).ToList())
+                store.Songs.Remove(song);
 
             try
             {
@@ -250,6 +425,28 @@ namespace Islet
             catch (Exception ex)
             {
                 Log.Error("Saving listening stats failed", ex);
+            }
+
+            ForgetCovers();
+        }
+
+        // Covers no song in the last week uses any more
+        void ForgetCovers()
+        {
+            try
+            {
+                if (!Directory.Exists(coverFolder))
+                    return;
+
+                var used = store.Songs.Values.Select(s => s.Cover).Where(c => c != null).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var file in Directory.GetFiles(coverFolder, "*.jpg"))
+                    if (!used.Contains(Path.GetFileName(file)))
+                        File.Delete(file);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Tidying the listening stats' covers failed", ex);
             }
         }
 

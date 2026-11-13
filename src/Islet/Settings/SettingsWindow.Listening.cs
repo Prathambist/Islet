@@ -3,6 +3,8 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace Islet
@@ -11,6 +13,7 @@ namespace Islet
     {
         const int SongsShown = 5;
         const int ArtistsShown = 3;
+        const int AlbumsShown = 3;
         const int WeekDays = ListeningStats.DaysKept;
 
         PageInfo listeningPage = null!;
@@ -26,11 +29,14 @@ namespace Islet
         // The bars rise when the page opens, not on every refresh
         bool growBars;
 
+        // Covers already read from disk, by file
+        readonly Dictionary<string, BitmapImage?> covers = new(StringComparer.OrdinalIgnoreCase);
+
         // ================= Listening =================
 
         void BuildListeningPage()
         {
-            Page("Listening", "", "Your last seven days of music: when you listen, and to what. Videos aren't counted, and none of it leaves this PC.");
+            Page("Listening", "", "Your last seven days of songs: what you played, who you played, and when. Videos don't count, and none of it leaves this PC.");
             listeningPage = page;
 
             statsBody = new StackPanel();
@@ -76,86 +82,79 @@ namespace Islet
             var period = weekView ? stats.Period(today.AddDays(1 - WeekDays), today) : stats.Period(selectedDay, selectedDay);
             var songs = period.Songs.Take(SongsShown).ToList();
             var artists = period.Artists.Take(ArtistsShown).ToList();
+            var albums = period.Albums.Take(AlbumsShown).ToList();
 
             // Minutes are what's on screen, so that's what decides whether to redraw
-            string drawn = $"{weekView}|{selectedDay:yyyyMMdd}|{today:yyyyMMdd}|" +
+            string drawn = $"{weekView}|{selectedDay:yyyyMMdd}|{today:yyyyMMdd}|{palette.Name}|" +
                 string.Join(",", daily.Select(d => (int)d.Total.TotalMinutes)) + "|" +
-                string.Join("|", songs.Concat(artists).Select(r => $"{r.Name}/{r.Artist}/{(int)r.Time.TotalMinutes}"));
+                string.Join("|", songs.Concat(artists).Concat(albums).Select(r => $"{r.Name}/{r.Artist}/{(int)r.Time.TotalMinutes}/{r.Plays}/{r.Cover}"));
 
             if (!force && drawn == drawnStats)
                 return;
 
             drawnStats = drawn;
             statsBody.Children.Clear();
-
             statsBody.Children.Add(StatsHeader(today));
 
+            if (songs.Count > 0)
+                statsBody.Children.Add(Hero(songs[0]));
+
             var overview = Group(null, statsBody);
+            ((FrameworkElement)statsBody.Children[^1]).Margin = new Thickness(0, songs.Count > 0 ? 12 : 0, 0, 0);
             AddToCard(overview, Padded(Tiles(period, weekView)));
             AddToCard(overview, Padded(WeekChart(daily, today)));
             AddToCard(overview, Padded(HourChart(period)));
             growBars = false;
 
-            if (period.Total.TotalMinutes < 1)
+            if (songs.Count == 0)
             {
                 var empty = Group(null, statsBody);
-                empty.Children.Add(Padded(Note(weekView ? "Nothing played this week yet."
-                    : selectedDay == today ? "Nothing played yet today. Songs show up here once they've played for a minute."
-                    : "Nothing played on this day.")));
+                empty.Children.Add(Padded(Note(weekView ? "No songs played this week yet."
+                    : selectedDay == today ? "No songs yet today. They show up here once they've played for a minute."
+                    : "No songs played on this day.")));
                 ((FrameworkElement)statsBody.Children[^1]).Margin = new Thickness(0, 12, 0, 0);
                 return;
             }
 
-            // Songs and artists side by side
-            var lists = new Grid { Margin = new Thickness(0, 0, 0, 0) };
-            lists.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
-            lists.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
-            lists.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-
-            var songColumn = new StackPanel();
-            var songCard = Group("Top songs", songColumn);
-            ((FrameworkElement)songColumn.Children[0]).Margin = new Thickness(4, 22, 0, 8);
+            var songCard = Group("Top songs", statsBody);
 
             for (int i = 0; i < songs.Count; i++)
-                AddToCard(songCard, Compact(RankRow(i + 1, songs[i].Name, songs[i].Artist, songs[i].Time, songs[0].Time)));
+                AddToCard(songCard, Compact(SongRow(i + 1, songs[i], songs[0].Time)));
 
-            lists.Children.Add(songColumn);
+            // Artists and albums side by side, as faces and covers
+            var shelves = new Grid { Margin = new Thickness(0, 22, 0, 0) };
+            shelves.ColumnDefinitions.Add(new ColumnDefinition());
+            shelves.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            shelves.ColumnDefinitions.Add(new ColumnDefinition());
 
             var artistColumn = new StackPanel();
-            var artistCard = Group("Top artists", artistColumn);
-            ((FrameworkElement)artistColumn.Children[0]).Margin = new Thickness(4, 22, 0, 8);
+            Shelf(Group("Top artists", artistColumn), artists, round: true, "No artist names on what played.");
+            shelves.Children.Add(artistColumn);
 
-            for (int i = 0; i < artists.Count; i++)
-                AddToCard(artistCard, Compact(RankRow(i + 1, artists[i].Name, null, artists[i].Time, artists[0].Time)));
+            var albumColumn = new StackPanel();
+            Shelf(Group("Top albums", albumColumn), albums, round: false, "No album names on what played.");
+            Grid.SetColumn(albumColumn, 2);
+            shelves.Children.Add(albumColumn);
 
-            if (artists.Count == 0)
-                artistCard.Children.Add(Padded(Note("No artist names on what played.")));
-
-            Grid.SetColumn(artistColumn, 2);
-            lists.Children.Add(artistColumn);
-
-            statsBody.Children.Add(lists);
+            statsBody.Children.Add(shelves);
         }
 
-        // "Today · Sun 9 Nov" on the left, Day or Week on the right
+        // "Today · Mon 9 Nov" on the left, Day or Week on the right
         Grid StatsHeader(DateTime today)
         {
             var header = new Grid { Margin = new Thickness(4, 0, 0, 12) };
             header.ColumnDefinitions.Add(new ColumnDefinition());
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            string title = weekView ? "Last 7 days"
-                : selectedDay == today ? "Today"
-                : selectedDay == today.AddDays(-1) ? "Yesterday"
-                : selectedDay.ToString("dddd");
-
-            string when = weekView
-                ? $"{today.AddDays(1 - WeekDays):d MMM} – {today:d MMM}"
-                : selectedDay.ToString("ddd d MMM");
-
             var words = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            words.Children.Add(new TextBlock { Text = title, FontSize = 15, FontWeight = FontWeights.SemiBold });
-            words.Children.Add(Faded(new TextBlock { Text = when, FontSize = 12.5, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Bottom }));
+            words.Children.Add(new TextBlock { Text = PeriodName(today), FontSize = 15, FontWeight = FontWeights.SemiBold });
+            words.Children.Add(Faded(new TextBlock
+            {
+                Text = weekView ? $"{today.AddDays(1 - WeekDays):d MMM} – {today:d MMM}" : selectedDay.ToString("ddd d MMM"),
+                FontSize = 12.5,
+                Margin = new Thickness(10, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Bottom
+            }));
             header.Children.Add(words);
 
             var mode = Segmented(new[] { "Day", "Week" }, weekView ? 1 : 0, i => Pick(i == 1, i == 1 ? selectedDay : DateTime.Today));
@@ -164,6 +163,89 @@ namespace Islet
 
             return header;
         }
+
+        string PeriodName(DateTime today) =>
+            weekView ? "Last 7 days"
+            : selectedDay == today ? "Today"
+            : selectedDay == today.AddDays(-1) ? "Yesterday"
+            : selectedDay.ToString("dddd");
+
+        // The top song, large, over a wash of its cover's colour
+        Border Hero(Ranked song)
+        {
+            var image = Cover(song.Cover);
+            var tint = AlbumPalette.Tone(AlbumPalette.From(image).Primary, palette.Light ? 0.86 : 0.2, 0.3, 0.75);
+
+            var hero = new Border
+            {
+                CornerRadius = new CornerRadius(14),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(18),
+                Background = new LinearGradientBrush(tint, palette.Card, new Point(0, 0), new Point(1, 1))
+            };
+            hero.SetResourceReference(Border.BorderBrushProperty, "Divider");
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+
+            var art = Art(image, 104, 12, "");
+            art.Effect = new DropShadowEffect { BlurRadius = 22, ShadowDepth = 6, Opacity = palette.Light ? 0.22 : 0.45, Color = Colors.Black };
+            grid.Children.Add(art);
+
+            var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(20, 0, 0, 0) };
+
+            var label = new TextBlock
+            {
+                Text = (weekView ? "TOP SONG THIS WEEK" : $"TOP SONG · {PeriodName(DateTime.Today).ToUpperInvariant()}"),
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold
+            };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "AccentText");
+            words.Children.Add(label);
+
+            words.Children.Add(new TextBlock
+            {
+                Text = song.Name,
+                FontSize = 21,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 4, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+
+            if (song.Artist != null)
+                words.Children.Add(Faded(new TextBlock { Text = song.Artist, FontSize = 13.5, TextTrimming = TextTrimming.CharacterEllipsis }));
+
+            words.Children.Add(Faded(new TextBlock
+            {
+                Text = PlaysAndTime(song),
+                FontSize = 12,
+                Margin = new Thickness(0, 10, 0, 0)
+            }));
+
+            Grid.SetColumn(words, 1);
+            grid.Children.Add(words);
+            hero.Child = grid;
+
+            // Arrives with a soft rise when the page opens
+            if (growBars)
+            {
+                hero.RenderTransform = new TranslateTransform(0, 10);
+                hero.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(360)));
+                hero.RenderTransform.BeginAnimation(TranslateTransform.YProperty,
+                    new DoubleAnimation(10, 0, TimeSpan.FromMilliseconds(420)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+            }
+
+            return hero;
+        }
+
+        static string PlaysAndTime(Ranked item) =>
+            item.Plays switch
+            {
+                0 => Tight(item.Time),
+                1 => $"1 play · {Tight(item.Time)}",
+                int n => $"{n} plays · {Tight(item.Time)}"
+            };
 
         // The headline numbers, side by side
         UniformGrid Tiles(ListeningPeriod period, bool week)
@@ -174,7 +256,11 @@ namespace Islet
             if (week)
                 tiles.Add((Tight(period.Total / WeekDays), "A day, on average"));
 
-            tiles.Add((period.Songs.Count.ToString(), period.Songs.Count == 1 ? "Song" : "Songs"));
+            tiles.Add((period.Plays.ToString(), period.Plays == 1 ? "Play" : "Plays"));
+
+            if (!week)
+                tiles.Add((period.Songs.Count.ToString(), period.Songs.Count == 1 ? "Song" : "Songs"));
+
             tiles.Add((period.Artists.Count.ToString(), period.Artists.Count == 1 ? "Artist" : "Artists"));
             tiles.Add((peak is int h ? HourName(h) : "–", "Peak hour"));
 
@@ -335,6 +421,159 @@ namespace Islet
             return panel;
         }
 
+        // A place in the top songs: rank, cover, title and artist, plays and time, and a bar against the top spot
+        Grid SongRow(int rank, Ranked song, TimeSpan longest)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var place = new TextBlock { Text = rank.ToString(), FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+
+            // The first place in the accent; the rest quieter
+            if (rank == 1)
+                place.SetResourceReference(TextBlock.ForegroundProperty, "AccentText");
+            else
+                Faded(place);
+
+            grid.Children.Add(place);
+
+            var art = Art(Cover(song.Cover), 40, 7, "");
+            art.Margin = new Thickness(0, 0, 12, 0);
+            Grid.SetColumn(art, 1);
+            grid.Children.Add(art);
+
+            var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            words.Children.Add(new TextBlock
+            {
+                Text = song.Name,
+                FontSize = 13,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = song.Artist == null ? song.Name : $"{song.Name} — {song.Artist}"
+            });
+
+            if (song.Artist != null)
+                words.Children.Add(Faded(new TextBlock { Text = song.Artist, FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis }));
+
+            words.Children.Add(Bar(longest.TotalSeconds > 0 ? song.Time.TotalSeconds / longest.TotalSeconds : 0));
+            Grid.SetColumn(words, 2);
+            grid.Children.Add(words);
+
+            var length = Faded(new TextBlock
+            {
+                Text = PlaysAndTime(song),
+                FontSize = 11.5,
+                Margin = new Thickness(14, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            Grid.SetColumn(length, 3);
+            grid.Children.Add(length);
+
+            return grid;
+        }
+
+        // Three artists or albums in a row: a face or cover each, its name and how long it played
+        void Shelf(StackPanel card, IReadOnlyList<Ranked> items, bool round, string none)
+        {
+            if (items.Count == 0)
+            {
+                card.Children.Add(Padded(Note(none)));
+                return;
+            }
+
+            var row = new UniformGrid { Rows = 1, Columns = 3 };
+
+            foreach (var item in items)
+            {
+                var spot = new StackPanel { Margin = new Thickness(4, 0, 4, 0) };
+
+                var art = Art(Cover(item.Cover), 72, round ? 36 : 9, round ? "" : "");
+                art.HorizontalAlignment = HorizontalAlignment.Center;
+                spot.Children.Add(art);
+
+                spot.Children.Add(new TextBlock
+                {
+                    Text = item.Name,
+                    FontSize = 12.5,
+                    FontWeight = FontWeights.SemiBold,
+                    Margin = new Thickness(0, 8, 0, 0),
+                    TextAlignment = TextAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    ToolTip = item.Artist == null ? item.Name : $"{item.Name} — {item.Artist}"
+                });
+
+                if (item.Artist != null)
+                    spot.Children.Add(Faded(new TextBlock { Text = item.Artist, FontSize = 11, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis }));
+
+                spot.Children.Add(Faded(new TextBlock { Text = Tight(item.Time), FontSize = 11, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 2, 0, 0) }));
+                row.Children.Add(spot);
+            }
+
+            // Fewer than three still sit on the left, at the same size
+            for (int i = items.Count; i < 3; i++)
+                row.Children.Add(new Border());
+
+            card.Children.Add(new Border { Padding = new Thickness(10, 16, 10, 14), Child = row });
+        }
+
+        // A cover saved by the stats, read once and kept
+        BitmapImage? Cover(string? file)
+        {
+            if (file == null)
+                return null;
+
+            if (covers.TryGetValue(file, out var known))
+                return known;
+
+            BitmapImage? image = null;
+
+            try
+            {
+                // Read fully now, so the file isn't held open and can be tidied away later
+                image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.DecodePixelWidth = 192;
+                image.UriSource = new Uri(file);
+                image.EndInit();
+                image.Freeze();
+            }
+            catch (Exception ex)
+            {
+                Log.Info("Couldn't read a listening cover: " + ex.Message);
+                image = null;
+            }
+
+            covers[file] = image;
+            return image;
+        }
+
+        // A rounded picture, or a quiet glyph in its place when there's none
+        Border Art(BitmapSource? image, double size, double radius, string glyph)
+        {
+            var art = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(radius), VerticalAlignment = VerticalAlignment.Center };
+
+            if (image != null)
+            {
+                art.Background = new ImageBrush(image) { Stretch = Stretch.UniformToFill };
+                RenderOptions.SetBitmapScalingMode(art, BitmapScalingMode.HighQuality);
+                return art;
+            }
+
+            art.SetResourceReference(Border.BackgroundProperty, "Control");
+            art.Child = Faded(new TextBlock
+            {
+                Text = glyph,
+                FontFamily = (FontFamily)FindResource("IconFont"),
+                FontSize = size * 0.36,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            return art;
+        }
+
         static void Rise(ScaleTransform scale, int delayMs) =>
             scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(420))
             {
@@ -376,61 +615,8 @@ namespace Islet
         Border Compact(UIElement content)
         {
             var row = Hoverable(content);
-            row.Padding = new Thickness(14, 9, 14, 9);
+            row.Padding = new Thickness(14, 8, 14, 8);
             return row;
-        }
-
-        // A place in a top list: its rank, its name, how long it played, and a bar against the top spot
-        static Grid RankRow(int rank, string name, string? artist, TimeSpan time, TimeSpan longest)
-        {
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition());
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            var place = new TextBlock
-            {
-                Text = rank.ToString(),
-                FontSize = 13,
-                FontWeight = FontWeights.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-
-            // The first place in the accent; the rest quieter
-            if (rank == 1)
-                place.SetResourceReference(TextBlock.ForegroundProperty, "AccentText");
-            else
-                Faded(place);
-
-            grid.Children.Add(place);
-
-            var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            words.Children.Add(new TextBlock
-            {
-                Text = name,
-                FontSize = 13,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                ToolTip = artist == null ? name : $"{name} — {artist}"
-            });
-
-            if (artist != null)
-                words.Children.Add(Faded(new TextBlock { Text = artist, FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis }));
-
-            words.Children.Add(Bar(longest.TotalSeconds > 0 ? time.TotalSeconds / longest.TotalSeconds : 0));
-            Grid.SetColumn(words, 1);
-            grid.Children.Add(words);
-
-            var length = Faded(new TextBlock
-            {
-                Text = ListeningStats.ShortDuration(time),
-                FontSize = 11.5,
-                Margin = new Thickness(12, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center
-            });
-            Grid.SetColumn(length, 2);
-            grid.Children.Add(length);
-
-            return grid;
         }
 
         // A thin bar, filled in the accent to the given share

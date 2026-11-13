@@ -35,9 +35,9 @@ namespace Islet
             lastCounted = now;
 
             // A long gap means the PC was asleep, not that music played all that time.
-            // Videos in the browser aren't music, so they aren't counted.
+            // Only songs count: not videos, clips or other media.
             if (track != null && playing && gap > 0 && gap < 5 && ListeningStats.Counts(track))
-                listening.Add(now, track.Artist, track.Title, TimeSpan.FromSeconds(gap));
+                listening.Add(now, track.Artist, track.Title, TimeSpan.FromSeconds(gap), track.Album, EffectiveArt(track, trackKey));
 
             AmbientCaption.Text = (Settings.DailyMusicSummary ? ListeningStats.Describe(listening.For(now)) : null)
                 ?? "Nothing playing";
