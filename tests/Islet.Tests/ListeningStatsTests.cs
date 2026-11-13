@@ -384,6 +384,45 @@ namespace Islet.Tests
             Assert.Equal((1080, 1350), (width, height));
         }
 
+        [Fact]
+        public void ListsMissingCoversAndTakesInFoundOnes()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+            stats.Add(Evening, "George Harrison", "My Sweet Lord", TimeSpan.FromMinutes(6));
+            stats.Add(Evening, "George Harrison", "What Is Life", TimeSpan.FromMinutes(3));
+            stats.Add(Evening, "The Beatles", "Something", TimeSpan.FromMinutes(4), "Abbey Road", Image(300, 300));
+
+            // Longest played first; the one with a cover isn't missing
+            Assert.Equal(new[] { ("My Sweet Lord", (string?)"George Harrison"), ("What Is Life", "George Harrison") },
+                stats.MissingCovers(Evening, Evening));
+
+            stats.SetCover("My Sweet Lord", "George Harrison", Image(600, 600));
+            stats.SetCover("What Is Life", "George Harrison", null);
+
+            // Found: shown, and for the artist too; not found: not asked for again for a week
+            var day = stats.Period(Evening, Evening);
+            Assert.NotNull(day.Songs.Single(s => s.Name == "My Sweet Lord").Cover);
+            Assert.Equal(day.Songs[0].Cover, day.Artists.Single(a => a.Name == "George Harrison").Cover);
+            Assert.Empty(stats.MissingCovers(Evening, Evening));
+
+            stats.Save();
+            var aWeekLater = new ListeningStats(folder, () => Evening.AddDays(7));
+            Assert.Equal(("What Is Life", (string?)"George Harrison"), aWeekLater.MissingCovers(Evening, Evening).Single());
+        }
+
+        [Fact]
+        public void ACoverIsOnlyKeptOnceTheSongHasBeenGoingAFewSeconds()
+        {
+            var stats = new ListeningStats(folder, () => Evening);
+
+            // The first second of a new song can still carry the last song's cover
+            stats.Add(Evening, "A", "New song", TimeSpan.FromSeconds(1), "Album", Image(300, 300));
+            Assert.Null(stats.Period(Evening, Evening).Songs.Single().Cover);
+
+            stats.Add(Evening, "A", "New song", TimeSpan.FromSeconds(4), "Album", Image(300, 300));
+            Assert.NotNull(stats.Period(Evening, Evening).Songs.Single().Cover);
+        }
+
         [Theory]
         [InlineData(30, "under a minute")]
         [InlineData(45 * 60, "45 min")]

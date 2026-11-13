@@ -63,6 +63,43 @@ namespace Islet
             return result;
         }
 
+        /// <summary>
+        /// A song's cover for the listening stats. Answered is false when the lookup couldn't be
+        /// made (no network, or iTunes not answering), so a song isn't taken to have no cover just
+        /// because the PC was offline. The title is a player's own (Spotify's "Song - 2010 Remaster"),
+        /// not a browser's "Artist - Song".
+        /// </summary>
+        public static async Task<(bool Answered, BitmapSource? Cover)> FindForStatsAsync(string? artist, string title)
+        {
+            var (cleanArtist, cleanTitle) = LyricsService.Clean(artist ?? "", title, fromBrowser: false);
+
+            if (cleanTitle.Length == 0)
+                return (true, null);
+
+            string term = (cleanArtist + " " + Featuring.Replace(cleanTitle, "")).Trim();
+
+            if (cache.TryGetValue(term, out var cached))
+                return (true, cached);
+
+            try
+            {
+                string url = "https://itunes.apple.com/search?media=music&entity=song&limit=10&term=" +
+                             Uri.EscapeDataString(term);
+
+                using var doc = JsonDocument.Parse(await http.GetStringAsync(url));
+                string? artUrl = SelectArtworkUrl(doc.RootElement, cleanArtist, cleanTitle);
+                var result = artUrl != null ? await DownloadAsync(artUrl) : null;
+
+                cache[term] = result;
+                return (true, result);
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"Cover lookup for the stats didn't get an answer for '{term}': {ex.Message}");
+                return (false, null);
+            }
+        }
+
         /// <summary>The 600px cover of the first search result that is the same song.</summary>
         internal static string? SelectArtworkUrl(JsonElement response, string artist, string title)
         {

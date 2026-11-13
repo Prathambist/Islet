@@ -98,6 +98,9 @@ namespace Islet
 
         /// <summary>Videos in the browser (YouTube, Instagram, X…), not just music from the web.</summary>
         public bool ShowWebVideos { get; set; }
+
+        /// <summary>Look up covers the listening stats are missing, on Apple's iTunes catalog.</summary>
+        public bool FindStatsCovers { get; set; } = true;
         public bool SourceOtherApps { get; set; }
 
         // Idle / ambient

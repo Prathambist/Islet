@@ -133,7 +133,13 @@ namespace Islet
         {
             public string Album { get; set; } = "";
             public string? Cover { get; set; }
+
+            /// <summary>When a cover was last looked for online and not found, so it isn't asked for again soon.</summary>
+            public string? NotFoundOn { get; set; }
         }
+
+        /// <summary>How long before a cover that wasn't found online is looked for again.</summary>
+        public static readonly TimeSpan LookAgainAfter = TimeSpan.FromDays(7);
 
         sealed class Store
         {
@@ -252,7 +258,10 @@ namespace Islet
                 store.FirstHeard.TryAdd(song, Key(when));
 
                 CountPlay(when, day, song, seconds, position);
-                Remember(song, title, artist, album, cover);
+
+                // Right as a song changes the player can still be showing the last one's cover,
+                // so it's only kept once the song has been going a few seconds
+                Remember(song, title, artist, album, runSeconds >= 4 ? cover : null);
             }
 
             CountSession(when, seconds);
@@ -366,6 +375,47 @@ namespace Islet
             {
                 Log.Error("Saving a cover for the listening stats failed", ex);
             }
+        }
+
+        /// <summary>
+        /// Songs played from <paramref name="first"/> to <paramref name="last"/> that have no cover
+        /// yet (played before covers were kept, or the player had none), longest played first,
+        /// leaving out those looked for lately and not found.
+        /// </summary>
+        public IReadOnlyList<(string Title, string? Artist)> MissingCovers(DateTime first, DateTime last)
+        {
+            var songs = new Dictionary<string, double>();
+
+            foreach (var day in DaysBetween(first, last))
+                Merge(songs, day.Songs);
+
+            string retryBefore = Key(clock() - LookAgainAfter);
+
+            return Ranking(songs)
+                .Where(s => CoverOf(s.Key) == null)
+                .Where(s => !store.Songs.TryGetValue(s.Key, out var known) || known.NotFoundOn == null ||
+                            string.CompareOrdinal(known.NotFoundOn, retryBefore) <= 0)
+                .Select(s => Split(s.Key))
+                .ToList();
+        }
+
+        /// <summary>A cover found for a song some other way, e.g. looked up online; null if none was found.</summary>
+        public void SetCover(string title, string? artist, BitmapSource? cover)
+        {
+            string song = SongKey(title, artist);
+
+            if (!store.Songs.TryGetValue(song, out var known))
+                store.Songs[song] = known = new Song();
+
+            if (cover == null)
+                known.NotFoundOn = Key(clock());
+            else
+            {
+                known.NotFoundOn = null;
+                Remember(song, title, artist ?? "", known.Album, cover);
+            }
+
+            dirty = true;
         }
 
         static string Hash(string text) =>

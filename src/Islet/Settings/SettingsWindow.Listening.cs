@@ -47,7 +47,7 @@ namespace Islet
 
         void BuildListeningPage()
         {
-            Page("Listening", "", "Your songs over the last five weeks: what you played, who you played, and when. Videos don't count, and none of it leaves this PC.");
+            Page("Listening", "", "Your songs over the last five weeks: what you played, who you played, and when. Videos don't count, and it's all kept on this PC.");
             listeningPage = page;
 
             statsBody = new StackPanel();
@@ -65,6 +65,16 @@ namespace Islet
             page.Content.Children.Add(detail);
 
             var summary = Group("Summary");
+            SwitchRow(summary, "Find missing covers online",
+                "Covers for songs whose player didn't give one, looked up on Apple's iTunes catalog by song and artist name, and kept with the stats.",
+                Settings.FindStatsCovers, v =>
+                {
+                    Settings.FindStatsCovers = v;
+                    Settings.Save();
+
+                    if (v)
+                        _ = FillCoversAsync();
+                });
             SwitchRow(summary, "Daily music summary",
                 "How long you listened today, and to whom, on the idle island at 9 PM; on Sundays, the whole week.",
                 Settings.DailyMusicSummary, v => { Settings.DailyMusicSummary = v; Settings.Save(); });
@@ -121,6 +131,8 @@ namespace Islet
             string drawn = $"{view}|{selectedDay:yyyyMMdd}|{today:yyyyMMdd}|{palette.Name}|" +
                 string.Join(",", daily.Select(d => (int)d.Total.TotalMinutes)) + "|" +
                 string.Join("|", songs.Concat(artists).Concat(albums).Select(r => $"{r.Name}/{r.Artist}/{(int)r.Time.TotalMinutes}/{r.Plays}/{r.Cover}"));
+
+            _ = FillCoversAsync();
 
             if (!force && drawn == drawnStats)
                 return;
@@ -184,6 +196,63 @@ namespace Islet
             shelves.Children.Add(albumColumn);
 
             statsBody.Children.Add(shelves);
+        }
+
+        bool fillingCovers;
+
+        // Covers the stats don't have, for songs played before covers were kept or whose player
+        // gave none, looked up a few at a time; the page is drawn again as they arrive
+        async Task FillCoversAsync()
+        {
+            if (fillingCovers || !Settings.FindStatsCovers)
+                return;
+
+            fillingCovers = true;
+            var stats = island.Listening;
+
+            try
+            {
+                while (IsLoaded && Settings.FindStatsCovers)
+                {
+                    // What's on screen first, then everything else kept
+                    var missing = stats.MissingCovers(First, Last).Take(8).ToList();
+
+                    if (missing.Count == 0)
+                        missing = stats.MissingCovers(DateTime.Today.AddDays(1 - ListeningStats.DaysKept), DateTime.Today).Take(8).ToList();
+
+                    if (missing.Count == 0)
+                        return;
+
+                    int found = 0;
+
+                    foreach (var (title, artist) in missing)
+                    {
+                        var (answered, cover) = await ArtworkService.FindForStatsAsync(artist, title);
+
+                        // No answer (offline, say): left to try another time
+                        if (!answered || !IsLoaded)
+                            return;
+
+                        stats.SetCover(title, artist, cover);
+
+                        if (cover != null)
+                            found++;
+
+                        // iTunes asks for no more than about twenty searches a minute
+                        await Task.Delay(TimeSpan.FromSeconds(3));
+                    }
+
+                    stats.Save();
+
+                    if (found > 0 && shown == listeningPage && !detail.IsOpen)
+                        DrawStats(force: true);
+                }
+            }
+            finally
+            {
+                fillingCovers = false;
+                stats.Save();
+            }
         }
 
         // The same length of time just before, to compare with; none for a month, or before counting began
