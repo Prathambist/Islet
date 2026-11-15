@@ -17,13 +17,15 @@ namespace Islet
         readonly Func<UpdateService.Release?> update;
         readonly Action installUpdate;
         readonly Action pickColor;
+        readonly Action openClipboard;
         readonly Icon image;
 
         static AppSettings Settings => AppSettings.Current;
 
         public TrayIcon(FullscreenWatcher fullscreen, CountdownTimer countdown, Action openSettings, Action quit,
-            Func<UpdateService.Release?> update, Action installUpdate, Action pickColor)
+            Func<UpdateService.Release?> update, Action installUpdate, Action pickColor, Action openClipboard)
         {
+            this.openClipboard = openClipboard;
             this.pickColor = pickColor;
             this.fullscreen = fullscreen;
             this.countdown = countdown;
@@ -70,6 +72,10 @@ namespace Islet
 
             menu.Items.Add(BuildTimerMenu(menu));
             menu.Items.Add("Pick a colour…", null, (s, e) => pickColor());
+
+            if (Settings.ClipboardHistoryEnabled)
+                menu.Items.Add("Clipboard history…", null, (s, e) => openClipboard());
+
             menu.Items.Add("Settings…", null, (s, e) => openSettings());
 
             if (Math.Abs(Settings.IslandX - 0.5) > 0.001)

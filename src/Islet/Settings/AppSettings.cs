@@ -130,6 +130,12 @@ namespace Islet
         public bool FindFileLocks { get; set; } = true;
         public bool DailyMusicSummary { get; set; } = true;
 
+        /// <summary>Keep a history of text you copy, to find and copy again later.</summary>
+        public bool ClipboardHistoryEnabled { get; set; } = true;
+
+        /// <summary>Hours an unpinned clipboard entry is kept before it's deleted (168 is a week).</summary>
+        public int ClipboardRetentionHours { get; set; } = 168;
+
         /// <summary>Minutes away before the album art screensaver; 0 turns it off.</summary>
         public int ScreensaverMinutes { get; set; } = 5;
 

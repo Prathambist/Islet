@@ -47,6 +47,7 @@ irm https://raw.githubusercontent.com/Prathambist/Islet/main/uninstall.ps1 | iex
 - **Colour picker:** pick any colour on screen; its hex code is copied and your last 12 wait beside the island.
 - **Files in use:** drag a file Windows won't delete onto the island to see which app has it open, and close it.
 - **File shelf:** drop files on the island, then drag them out anywhere later.
+- **Clipboard history:** text you copy is kept (encrypted, on this PC) for 24 hours to 30 days or a custom time, then deleted. Search it, copy again, and pin what you want to keep. Open it from the tray or Settings > Tools.
 - **Movable:** hold the island for a second, then drag it anywhere along the top.
 - **Performance modes:** Low, Medium and High.
 
