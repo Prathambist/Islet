@@ -185,6 +185,7 @@ namespace Islet
             SetUpColors();
             SetUpQuiet();
             SetUpScreenshots();
+            SetUpClipboard();
             SetUpLocks();
             SetUpListening();
 
@@ -389,7 +390,7 @@ namespace Islet
             ApplyDock(snap: true);
 
             tray = new TrayIcon(fullscreen, countdown, () => OpenSettings(), () => Close(),
-                () => availableUpdate, () => _ = InstallUpdateAsync(), StartPicking);
+                () => availableUpdate, () => _ = InstallUpdateAsync(), StartPicking, OpenClipboardHistory);
 
             islandScale.Snap(SizeScale);
 
@@ -449,6 +450,7 @@ namespace Islet
             SyncColors();
             SyncDoNotDisturb();
             SyncScreenshots();
+            SyncClipboard();
             ApplyDock();
 
             if (Settings.NotifyDiscord || Settings.NotifyWhatsApp || Settings.NotifyMessenger || Settings.NotifyOtherApps)

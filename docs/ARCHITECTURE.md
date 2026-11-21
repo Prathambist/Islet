@@ -79,6 +79,7 @@ All state lives in `%AppData%\Islet`:
 | `settings.json` | Every setting, including the Spotify Client ID and refresh token (encrypted with Windows DPAPI for your user account). |
 | `timer.json` | A running timer, so it survives a restart. Removed when no timer is running. |
 | `shelf.json` | Paths of files on the shelf (not copies). |
+| `clipboard.dat` | Clipboard history, encrypted with Windows DPAPI. Entries past the retention period are deleted. |
 | `Shelf\` | Images and links dropped from web pages, saved as files. |
 | `colors.json` | The last 12 picked colours. |
 | `log.txt` | Errors and a few lifecycle events, rotated at 1 MB. Never message contents. |

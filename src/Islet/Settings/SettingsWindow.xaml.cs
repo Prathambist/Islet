@@ -418,6 +418,8 @@ namespace Islet
                     System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = folder, UseShellExecute = true });
                 }));
 
+            BuildClipboardGroup();
+
             var colours = Group("Colour picker");
             Row(colours, "Pick a colour", "Or right-click the island. The hex code is copied.",
                 PillButton("Pick", () => island.StartPicking()));
@@ -428,6 +430,83 @@ namespace Islet
             SwitchRow(locks, "Find out what has a file open",
                 "When Windows won't delete or change a file, drag it onto the island and let go on \"What's using it?\".",
                 Settings.FindFileLocks, v => { Settings.FindFileLocks = v; Settings.Save(); });
+        }
+
+        // Retention choices, in hours; anything else is "Custom"
+        public static readonly int[] ClipboardRetentionChoices = { 24, 48, 168, 336, 720 };
+
+        void BuildClipboardGroup()
+        {
+            var clipboard = Group("Clipboard history");
+            SwitchRow(clipboard, "Keep a history of text you copy",
+                "Saved on this PC only, encrypted for your Windows account. Passwords copied from password managers are left out.",
+                Settings.ClipboardHistoryEnabled, v => { Settings.ClipboardHistoryEnabled = v; Settings.Save(); });
+
+            int choice = Array.IndexOf(ClipboardRetentionChoices, Settings.ClipboardRetentionHours);
+            var customRow = new DockPanel { Visibility = choice < 0 ? Visibility.Visible : Visibility.Collapsed, Margin = new Thickness(0, 10, 0, 0) };
+            var customBox = new TextBox { Text = Math.Max(1, Settings.ClipboardRetentionHours / 24).ToString(), Width = 70 };
+            TextBlock customNote = null!;
+
+            void ApplyCustom()
+            {
+                if (int.TryParse(customBox.Text.Trim(), out int days) && days is >= 1 and <= 3650)
+                {
+                    Settings.ClipboardRetentionHours = days * 24;
+                    Settings.Save();
+                    customNote.Text = $"Entries are deleted {days} day{(days == 1 ? "" : "s")} after they're copied.";
+                }
+                else
+                {
+                    customNote.Text = "Type a number of days, from 1 to 3650.";
+                }
+            }
+
+            customBox.LostFocus += (s, e) => ApplyCustom();
+            customBox.KeyDown += (s, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.Enter)
+                    ApplyCustom();
+            };
+
+            customNote = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), FontSize = 12, TextWrapping = TextWrapping.Wrap };
+            Faded(customNote);
+            var days = new TextBlock { Text = "days", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+            DockPanel.SetDock(customBox, Dock.Left);
+            DockPanel.SetDock(days, Dock.Left);
+            customRow.Children.Add(customBox);
+            customRow.Children.Add(days);
+            customRow.Children.Add(customNote);
+
+            var keep = new StackPanel();
+            keep.Children.Add(Segmented(
+                new[] { "24 hours", "2 days", "7 days", "14 days", "30 days", "Custom" },
+                choice < 0 ? ClipboardRetentionChoices.Length : choice,
+                i =>
+                {
+                    customRow.Visibility = i == ClipboardRetentionChoices.Length ? Visibility.Visible : Visibility.Collapsed;
+
+                    if (i < ClipboardRetentionChoices.Length)
+                    {
+                        Settings.ClipboardRetentionHours = ClipboardRetentionChoices[i];
+                        Settings.Save();
+                    }
+                    else
+                    {
+                        ApplyCustom();
+                    }
+                }));
+            keep.Children.Add(customRow);
+            Row(clipboard, "Keep copied text for", "Each entry is deleted this long after it was copied. Pinned entries stay until you delete them.", null, keep);
+
+            Row(clipboard, "Your history", "Search it, copy something again, pin or delete entries. Also in the tray menu.",
+                Buttons(
+                    PillButton("Open", () => island.OpenClipboardHistory()),
+                    PillButton("Clear", () =>
+                    {
+                        if (MessageBox.Show(this, "Delete your whole clipboard history, pinned entries too?", "Islet",
+                                MessageBoxButton.OKCancel, MessageBoxImage.Question) == MessageBoxResult.OK)
+                            island.ClipboardHistory.Clear(includePinned: true);
+                    })));
         }
 
         // ================= Full-screen apps =================
